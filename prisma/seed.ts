@@ -1,3 +1,4 @@
+import type { Channel } from "@prisma/client";
 import { db } from "@/lib/db";
 import { advance, createCase } from "@/lib/engine/case";
 import { hashPassword } from "@/lib/password";
@@ -50,27 +51,37 @@ async function main() {
     data: { nombre: "Ana López", telefono: "+526670000001", fechaNac: new Date("1992-04-15"), email: "ana@demo.mx" },
   });
 
-  // Otros pacientes con trámites en distintos pasos para que el tablero admin no arranque vacío.
-  const others = [
-    { nombre: "Carlos Ruiz", telefono: "+526670000002", fechaNac: "1985-09-02", hasta: 2, canal: "WHATSAPP" as const },
-    { nombre: "Sofía Medina", telefono: "+526670000003", fechaNac: "1999-01-20", hasta: 5, canal: "WEB" as const },
-    { nombre: "Jorge Pérez", telefono: "+526670000004", fechaNac: "1978-06-11", hasta: 3, canal: "CALL_CENTER" as const },
+  // Otros pacientes con recorridos multicanal en distintos pasos, para que el tablero admin no arranque vacío.
+  // `ruta` = canal de cada paso; `haceMin` = antigüedad simulada del recorrido (para ver trámites pausados).
+  const others: { nombre: string; telefono: string; fechaNac: string; studyId: string; ruta: Channel[]; haceMin: number }[] = [
+    { nombre: "Carlos Ruiz", telefono: "+526670000002", fechaNac: "1985-09-02", studyId: "lab-quimica", ruta: ["WEB", "WHATSAPP"], haceMin: 3 },
+    { nombre: "Sofía Medina", telefono: "+526670000003", fechaNac: "1999-01-20", studyId: "mastografia", ruta: ["WEB", "WEB", "WHATSAPP", "CALL_CENTER", "CALL_CENTER"], haceMin: 95 },
+    { nombre: "Jorge Pérez", telefono: "+526670000004", fechaNac: "1978-06-11", studyId: "rx-torax", ruta: ["WHATSAPP", "WHATSAPP", "CALL_CENTER"], haceMin: 40 },
+    { nombre: "Lucía Torres", telefono: "+526670000005", fechaNac: "1990-12-03", studyId: "us-obstetrico", ruta: ["APP", "APP", "APP", "APP", "APP"], haceMin: 180 },
+    { nombre: "Miguel Ángel Soto", telefono: "+526670000006", fechaNac: "1969-03-27", studyId: "us-abdominal", ruta: ["WEB"], haceMin: 25 },
   ];
   for (const o of others) {
     const p = await db.patient.create({ data: { nombre: o.nombre, telefono: o.telefono, fechaNac: new Date(o.fechaNac) } });
-    const c = await createCase({ channel: o.canal, patientId: p.id });
+    const c = await createCase({ channel: o.ruta[0], patientId: p.id });
     const steps = [
-      { to: "ESTUDIO_ELEGIDO", data: { studyId: "lab-quimica" } },
+      { to: "ESTUDIO_ELEGIDO", data: { studyId: o.studyId } },
       { to: "CLINICA_ELEGIDA", data: { clinicId: "cln-quintas" } },
       { to: "HORARIO_ELEGIDO", data: { horario: tomorrowAt(9) } },
       { to: "DATOS_CONFIRMADOS", data: {} },
       { to: "CITA_CONFIRMADA", data: {} },
     ] as const;
     let version = c.version;
-    for (const s of steps.slice(0, o.hasta)) {
-      const r = await advance({ caseId: c.id, to: s.to, data: s.data, channel: o.canal, expectedVersion: version });
+    for (const [i, s] of steps.slice(0, o.ruta.length).entries()) {
+      const r = await advance({ caseId: c.id, to: s.to, data: s.data, channel: o.ruta[i], expectedVersion: version });
       version = r.case.version;
     }
+    // Solo en datos de demo: recorre la historia hacia atrás para simular que ocurrió hace `haceMin` minutos.
+    const shift = o.haceMin * 60_000;
+    const evs = await db.event.findMany({ where: { patientId: p.id }, orderBy: { seq: "asc" } });
+    for (const [i, e] of evs.entries()) {
+      await db.event.update({ where: { seq: e.seq }, data: { createdAt: new Date(Date.now() - shift - (evs.length - i) * 4 * 60_000) } });
+    }
+    await db.case.update({ where: { id: c.id }, data: { createdAt: evs[0] ? new Date(Date.now() - shift - evs.length * 4 * 60_000) : undefined, updatedAt: new Date(Date.now() - shift) } });
   }
 
   console.log("Seed listo: Ana (+52 667 000 0001, nac. 1992-04-15), asesor@demo.mx/asesor123, admin@demo.mx/admin123");

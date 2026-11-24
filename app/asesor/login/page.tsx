@@ -16,9 +16,8 @@ export default function StaffLogin() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/auth/staff/login", { body: { email, password } });
-      router.replace("/asesor"); // shortcut: el admin también entra a la consola hasta que exista /admin
-
+      const r = await api<{ role: string }>("/api/auth/staff/login", { body: { email, password } });
+      router.replace(r.role === "ADMIN" ? "/admin" : "/asesor");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Error de red");
       setBusy(false);
