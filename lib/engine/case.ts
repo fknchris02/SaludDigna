@@ -6,14 +6,29 @@ import { appendEvent, EventType, publish, recordEvent } from "./events";
 
 export class EngineError extends Error {
   constructor(
-    public code: "NOT_FOUND" | "CONFLICT" | "INVALID_TRANSITION" | "INVALID_DATA" | "IDENTITY_REQUIRED",
+    public code:
+      | "NOT_FOUND"
+      | "CONFLICT"
+      | "INVALID_TRANSITION"
+      | "INVALID_DATA"
+      | "IDENTITY_REQUIRED"
+      | "UNAUTHENTICATED"
+      | "FORBIDDEN",
     message: string,
     public details?: Record<string, unknown>,
   ) {
     super(message);
   }
   get status() {
-    return { NOT_FOUND: 404, CONFLICT: 409, INVALID_TRANSITION: 422, INVALID_DATA: 400, IDENTITY_REQUIRED: 403 }[this.code];
+    return {
+      NOT_FOUND: 404,
+      CONFLICT: 409,
+      INVALID_TRANSITION: 422,
+      INVALID_DATA: 400,
+      IDENTITY_REQUIRED: 403,
+      UNAUTHENTICATED: 401,
+      FORBIDDEN: 403,
+    }[this.code];
   }
 }
 

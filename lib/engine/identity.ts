@@ -92,10 +92,14 @@ export async function verifyAndLink(input: {
 }) {
   const identity = await db.channelIdentity.findUnique({ where: { id: input.identityId } });
   if (!identity) throw new EngineError("NOT_FOUND", "Identidad no encontrada");
-  if (!(await verifyOtp(input.telefono, input.code, identity.channel))) {
+  const telefono = normalizePhone(input.telefono);
+  // Revisar ANTES de consumir el OTP, para no quemar el código de un paciente nuevo sin perfil.
+  if (!input.perfil && !(await db.patient.findUnique({ where: { telefono } }))) {
+    throw new EngineError("INVALID_DATA", "Paciente nuevo: se requiere nombre y fecha de nacimiento", { needsProfile: true });
+  }
+  if (!(await verifyOtp(telefono, input.code, identity.channel))) {
     throw new EngineError("IDENTITY_REQUIRED", "Código incorrecto o expirado");
   }
-  const telefono = normalizePhone(input.telefono);
 
   const { patient, events } = await db.$transaction(async (tx) => {
     let patient = await tx.patient.findUnique({ where: { telefono } });
@@ -160,6 +164,30 @@ export async function verifyByBirthdate(identityId: string, fechaNac: string) {
       events: [
         await appendEvent(tx, { ...base, type: EventType.IDENTITY_VERIFIED, payload: { method: "BIRTHDATE" } }),
         await appendEvent(tx, { ...base, type: EventType.IDENTITY_LINKED, payload: { identityId: identity.id, channel: identity.channel } }),
+      ],
+    };
+  });
+  publish(events);
+  return patient;
+}
+
+/** Paciente nuevo que llega por WhatsApp: el número ya está verificado por el canal; se registra con nombre y fecha. */
+export async function registerByWhatsApp(identityId: string, nombre: string, fechaNac: string) {
+  const identity = await db.channelIdentity.findUnique({ where: { id: identityId } });
+  if (!identity || identity.channel !== "WHATSAPP") throw new EngineError("NOT_FOUND", "Identidad no encontrada");
+  const telefono = normalizePhone(identity.externalId);
+  const { patient, events } = await db.$transaction(async (tx) => {
+    if (await tx.patient.findUnique({ where: { telefono } })) {
+      throw new EngineError("INVALID_DATA", "Este número ya está registrado; verifica con tu fecha de nacimiento");
+    }
+    const patient = await tx.patient.create({ data: { telefono, nombre, fechaNac: new Date(fechaNac) } });
+    await tx.channelIdentity.update({ where: { id: identity.id }, data: { patientId: patient.id, verifiedAt: new Date() } });
+    const base = { channel: identity.channel, patientId: patient.id };
+    return {
+      patient,
+      events: [
+        await appendEvent(tx, { ...base, type: EventType.IDENTITY_VERIFIED, payload: { method: "WHATSAPP_NUMBER" } }),
+        await appendEvent(tx, { ...base, type: EventType.IDENTITY_LINKED, payload: { identityId: identity.id, channel: identity.channel, nuevo: true } }),
       ],
     };
   });
