@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { formatDate, money, slots } from "@/lib/format";
 import { CHANNEL_NAME } from "@/lib/labels";
 import { advance, createCase, EngineError, getActiveCase, pendingStep, resumeCase } from "@/lib/engine/case";
-import { EventType, recordEvent } from "@/lib/engine/events";
+import { appendEvent, EventType, publish, recordEvent } from "@/lib/engine/events";
 import {
   getOrCreateChannelIdentity,
   maskPhone,
@@ -82,6 +82,86 @@ export async function handleInboundMessage(input: { from: string; text: string; 
 
 type Result = { replies: Reply[]; next: ConvState; caseId: string | null };
 
+/**
+ * Avisos salientes: lo que WhatsApp le habría mandado al paciente mientras usaba otros canales (cita confirmada o
+ * cancelada, trámite nuevo pendiente), para que la conversación no se quede con opciones viejas.
+ * Solo con identidad verificada. Idempotente: si la conversación ya está al día, no envía nada.
+ * shortcut: se dispara al abrir el simulador; con WhatsApp real, enviarlo al ocurrir el evento (plantilla fuera de la ventana de 24 h).
+ */
+export async function catchUp(telefono: string) {
+  const found = await db.channelIdentity.findUnique({ where: { channel_externalId: { channel: "WHATSAPP", externalId: telefono } } });
+  if (!found?.patientId) return;
+  const sent = await db.$transaction(async (tx) => {
+    // Bloquea la conversación: dos pestañas abriendo a la vez no duplican avisos (la segunda ya la ve al día).
+    await tx.$queryRaw`SELECT id FROM "ChannelIdentity" WHERE id = ${found.id} FOR UPDATE`;
+    const identity = await tx.channelIdentity.findUniqueOrThrow({ where: { id: found.id } });
+    return pendingNotices(tx, identity);
+  });
+  publish(sent);
+}
+
+async function pendingNotices(tx: Prisma.TransactionClient, identity: ChannelIdentity) {
+  if (!identity.patientId || !identity.verifiedAt || Date.now() - identity.verifiedAt.getTime() >= VERIFICATION_TTL_MS) return [];
+  const patient = await tx.patient.findUniqueOrThrow({ where: { id: identity.patientId } });
+  const state = (identity.convState ?? {}) as ConvState;
+
+  const lastOut = await tx.event.findFirst({
+    where: { type: EventType.MESSAGE_OUT, payload: { path: ["identityId"], equals: identity.id } },
+    orderBy: { seq: "desc" },
+    select: { seq: true },
+  });
+  const after = lastOut?.seq ?? 0n;
+  const cases = new Map((await tx.case.findMany({ where: { patientId: patient.id } })).map((c) => [c.id, c]));
+  const closed = await tx.event.findMany({
+    where: {
+      caseId: { in: [...cases.keys()] },
+      type: { in: [EventType.APPOINTMENT_CONFIRMED, EventType.CASE_CANCELLED] },
+      channel: { not: "WHATSAPP" },
+      seq: { gt: after },
+    },
+    orderBy: { seq: "asc" },
+  });
+  const out: (Reply & { caseId: string | null })[] = closed.map((e) => {
+    const c = cases.get(e.caseId!)!;
+    const d = c.data as Record<string, string>;
+    return e.type === EventType.APPOINTMENT_CONFIRMED
+      ? { caseId: c.id, text: `✅ Tu cita quedó confirmada desde ${channelName(e.channel)}.\nFolio: *${d.folio}*\n${summary(c)}` }
+      : { caseId: c.id, text: `Tu trámite de ${d.estudio ?? "estudio"} fue cancelado desde ${channelName(e.channel)}.` };
+  });
+
+  const active = await getActiveCase(patient.id);
+  const stale = (state.caseId ?? null) !== (active?.id ?? null) || (!!active && state.version !== active.version);
+  if (!out.length && !stale) return [];
+
+  let next: ConvState = {};
+  if (active) {
+    const r = await withPrompt(
+      [{ text: `${firstName(patient)}, tienes un trámite pendiente (último cambio en ${channelName(active.lastChannel)}):\n${summary(active)}\nSigamos donde te quedaste 👇` }],
+      active,
+      patient,
+    );
+    out.push(...r.replies.map((x) => ({ ...x, caseId: active.id })));
+    next = r.next;
+  } else {
+    out.push({ caseId: null, text: "Si quieres agendar otro estudio, escribe *hola*." });
+  }
+
+  const sent = [];
+  for (const r of out) {
+    sent.push(
+      await appendEvent(tx, {
+        type: EventType.MESSAGE_OUT,
+        channel: "WHATSAPP",
+        patientId: patient.id,
+        caseId: r.caseId,
+        payload: { identityId: identity.id, text: r.text, options: r.options ?? [] },
+      }),
+    );
+  }
+  await tx.channelIdentity.update({ where: { id: identity.id }, data: { convState: next as Prisma.InputJsonObject } });
+  return sent;
+}
+
 async function respond(identity: ChannelIdentity, state: ConvState, text: string, messageId: string): Promise<Result> {
   const verified =
     identity.patientId && identity.verifiedAt && Date.now() - identity.verifiedAt.getTime() < VERIFICATION_TTL_MS;
@@ -156,8 +236,12 @@ async function caseFlow(
   if (active && active.lastChannel !== "WHATSAPP") {
     const from = active.lastChannel;
     active = await resumeCase(active.id, "WHATSAPP");
-    pre.push({ text: `${firstName(patient)}, tienes un trámite pendiente que iniciaste en ${channelName(from)}:\n${summary(active)}\nSigamos donde te quedaste 👇` });
-    return withPrompt(pre, active, patient);
+    // Si un aviso (catchUp) ya ofreció opciones para esta misma versión, la respuesta es válida y se procesa.
+    const alreadyOffered = state.awaiting === "OPTION" && state.caseId === active.id && state.version === active.version;
+    if (!alreadyOffered) {
+      pre.push({ text: `${firstName(patient)}, tienes un trámite pendiente que iniciaste en ${channelName(from)}:\n${summary(active)}\nSigamos donde te quedaste 👇` });
+      return withPrompt(pre, active, patient);
+    }
   }
   if (justVerified) return withPrompt(pre, active, patient);
 

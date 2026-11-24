@@ -16,21 +16,21 @@ type View = "ESTUDIO" | "CLINICA" | "IDENTIDAD" | "HORARIO" | "DATOS" | "CITA" |
 
 const OPEN = new Set(["INICIADO", "ESTUDIO_ELEGIDO", "CLINICA_ELEGIDA", "HORARIO_ELEGIDO", "DATOS_CONFIRMADOS"]);
 const WIZARD: { view: View; label: string }[] = [
+  { view: "IDENTIDAD", label: "Tu teléfono" },
   { view: "ESTUDIO", label: "Estudio" },
   { view: "CLINICA", label: "Clínica" },
-  { view: "IDENTIDAD", label: "Tus datos" },
   { view: "HORARIO", label: "Horario" },
   { view: "CITA", label: "Confirmar" },
 ];
 
 /** Qué pantalla toca según el estado real del trámite (vive en el servidor, no en el navegador). */
-function viewFor(c: CaseT | null, verified: boolean): View {
+function viewFor(c: CaseT | null): View {
   if (!c || c.step === "CANCELADO") return "ESTUDIO";
   switch (c.step) {
     case "INICIADO": return "ESTUDIO";
     case "ESTUDIO_ELEGIDO": return "CLINICA";
-    case "CLINICA_ELEGIDA": return verified ? "HORARIO" : "IDENTIDAD";
-    case "HORARIO_ELEGIDO": return verified ? "DATOS" : "IDENTIDAD";
+    case "CLINICA_ELEGIDA": return "HORARIO";
+    case "HORARIO_ELEGIDO": return "DATOS";
     case "DATOS_CONFIRMADOS": return "CITA";
     default: return "LISTO";
   }
@@ -125,7 +125,8 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
   if (!me || !catalog) return <main className="min-h-screen grid place-items-center text-slate-500">Cargando…</main>;
   const c = done ?? me.activeCase;
   const verified = !!me.patient;
-  const view = done ? "LISTO" : (editing ?? viewFor(c, verified));
+  // Primero el teléfono: sin él los pasos quedarían en un trámite anónimo que ningún otro canal puede ver.
+  const view = done ? "LISTO" : !verified ? "IDENTIDAD" : (editing ?? viewFor(c));
   const d = (c?.data ?? {}) as Record<string, string | number>;
   const wizardIndex = view === "DATOS" ? 4 : view === "LISTO" ? 5 : WIZARD.findIndex((w) => w.view === view);
 
@@ -156,8 +157,8 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
             {view === "ESTUDIO" && <StudyStep catalog={catalog} busy={busy} onPick={(id) => advance("ESTUDIO_ELEGIDO", { studyId: id })} />}
             {view === "CLINICA" && <ClinicStep catalog={catalog} busy={busy} onPick={(id) => advance("CLINICA_ELEGIDA", { clinicId: id })} />}
             {view === "IDENTIDAD" && (
-              <OtpLogin channel={channel} title="Guarda tu avance" onVerified={load}
-                description="Para apartar un horario verificamos tu teléfono. Así podrás continuar después por WhatsApp o con un asesor sin repetir nada." />
+              <OtpLogin channel={channel} title="Empieza con tu teléfono" onVerified={load}
+                description="Verificamos tu teléfono para guardar cada paso al momento. Así podrás continuar cuando quieras por WhatsApp, con un asesor o en la app, sin repetir nada." />
             )}
             {view === "HORARIO" && <SlotStep slots={catalog.slots} busy={busy} onPick={(s) => advance("HORARIO_ELEGIDO", { horario: s })} />}
             {view === "DATOS" && (
@@ -228,7 +229,7 @@ function StudyStep({ catalog, busy, onPick }: { catalog: Catalog; busy: boolean;
   return (
     <>
       <h1 className="text-xl font-semibold">¿Qué estudio necesitas?</h1>
-      <p className="text-sm text-slate-600 mt-1">Cotiza sin registrarte. Precios de demostración.</p>
+      <p className="text-sm text-slate-600 mt-1">Precios de demostración.</p>
       <ul className="mt-4 grid gap-3 @md:grid-cols-2">
         {catalog.studies.map((s) => (
           <li key={s.id}>

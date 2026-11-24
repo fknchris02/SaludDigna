@@ -12,14 +12,15 @@ sequenceDiagram
   participant DB as PostgreSQL
   participant A as Admin (SSE)
 
+  Ana->>W: Verifica su teléfono (OTP)
+  W->>M: getOrCreateChannelIdentity(WEB, cookie) · verifyAndLink
+  M->>DB: identidad web ligada a Ana
   Ana->>W: Cotiza ultrasonido
-  W->>M: getOrCreateChannelIdentity(WEB, cookie)
   W->>M: createCase + advance(ESTUDIO_ELEGIDO)
-  M->>DB: Case v2 + Event STEP_COMPLETED
+  M->>DB: Case v2 + Event STEP_COMPLETED (ya es de Ana)
   M-->>A: evento en vivo
-  Ana->>W: Elige clínica, verifica teléfono (OTP)
-  W->>M: advance(CLINICA_ELEGIDA) · verifyAndLink
-  M->>DB: identidad ligada, trámite pasa a Ana
+  Ana->>W: Elige clínica
+  W->>M: advance(CLINICA_ELEGIDA)
   Note over Ana,W: Cierra la computadora (trámite queda en CLINICA_ELEGIDA)
 
   Ana->>WA: "Hola"

@@ -53,7 +53,7 @@ Llave maestra: **teléfono E.164 verificado**. Cada canal tiene su `ChannelIdent
 
 | Canal | Identificador | Verificación |
 |---|---|---|
-| Web | cookie anónima | OTP al teléfono → liga identidad y **mueve sus trámites anónimos** al paciente |
+| Web | cookie anónima | OTP al teléfono **antes del primer paso**, para que todo lo que elija sea visible al instante en los demás canales (si hubiera trámites anónimos previos, pasan al paciente) |
 | WhatsApp | número remitente (posesión del teléfono) | + fecha de nacimiento (máx. 3 intentos / 10 min) |
 | Call Center | búsqueda por teléfono/nombre | datos enmascarados hasta validar 2 datos u OTP |
 | App | usuario | teléfono + OTP |

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handleInboundMessage } from "@/lib/channels/whatsapp";
+import { catchUp, handleInboundMessage } from "@/lib/channels/whatsapp";
 import { db } from "@/lib/db";
 import { EventType } from "@/lib/engine/events";
 import { normalizePhone } from "@/lib/engine/identity";
@@ -29,6 +29,7 @@ export async function GET(req: Request) {
   if (!enabled()) return new Response(null, { status: 404 });
   try {
     const from = normalizePhone(z.string().parse(new URL(req.url).searchParams.get("from")));
+    await catchUp(from);
     const identity = await db.channelIdentity.findUnique({ where: { channel_externalId: { channel: "WHATSAPP", externalId: from } } });
     if (!identity) return Response.json({ messages: [] });
     const events = await db.event.findMany({

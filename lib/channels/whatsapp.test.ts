@@ -4,7 +4,7 @@ import { advance, createCase, getActiveCase } from "@/lib/engine/case";
 import { getOrCreateChannelIdentity, requestOtp, verifyAndLink } from "@/lib/engine/identity";
 import { resetDb } from "@/test/db";
 import { slots } from "@/lib/format";
-import { handleInboundMessage, parseDate, pickOption } from "./whatsapp";
+import { catchUp, handleInboundMessage, parseDate, pickOption } from "./whatsapp";
 
 const ANA = "667 000 0001";
 let n = 0;
@@ -113,6 +113,34 @@ describe("recorrido de Ana: Web → WhatsApp", () => {
     expect(texts(r)).toMatch(/iniciaste en el Call Center/);
     expect(texts(r)).toMatch(/Confirma tus datos/);
     expect((await db.case.findUniqueOrThrow({ where: { id: c.id } })).data).toMatchObject({ horario: slots()[5] });
+  });
+
+  it("al abrir WhatsApp avisa lo que se cerró en otros canales y ofrece el trámite nuevo pendiente", async () => {
+    const c = await anaStartsOnWeb();
+    await send("hola");
+    await send("15/04/1992"); // WhatsApp ofrece horarios de c
+    // El asesor termina c y Ana abre otro trámite en la web.
+    let v = (await db.case.findUniqueOrThrow({ where: { id: c.id } })).version;
+    for (const [to, data] of [["HORARIO_ELEGIDO", { horario: slots()[0] }], ["DATOS_CONFIRMADOS", {}], ["CITA_CONFIRMADA", {}]] as const) {
+      v = (await advance({ caseId: c.id, to, data, channel: "CALL_CENTER", expectedVersion: v })).case.version;
+    }
+    const patientId = (await db.case.findUniqueOrThrow({ where: { id: c.id } })).patientId!;
+    const c2 = await createCase({ channel: "WEB", patientId });
+    await advance({ caseId: c2.id, to: "ESTUDIO_ELEGIDO", data: { studyId: "us" }, channel: "WEB", expectedVersion: 1 });
+    await advance({ caseId: c2.id, to: "CLINICA_ELEGIDA", data: { clinicId: "c1" }, channel: "WEB", expectedVersion: 2 });
+
+    const outbox = async () => (await db.event.findMany({ where: { type: "MESSAGE_OUT" }, orderBy: { seq: "asc" } })).map((e) => (e.payload as { text: string }).text);
+    const before = (await outbox()).length;
+    await Promise.all([catchUp("+526670000001"), catchUp("+526670000001")]); // dos pestañas a la vez
+    const avisos = (await outbox()).slice(before).join("\n");
+    expect(avisos).toMatch(/cita quedó confirmada desde el Call Center[\s\S]*Folio: \*SD-/);
+    expect(avisos).toMatch(/trámite pendiente[\s\S]*Elige un horario/);
+    expect((await outbox()).length - before).toBe(3); // sin duplicados
+    await catchUp("+526670000001");
+    expect((await outbox()).length - before).toBe(3); // ya al día: no repite
+
+    await send("1"); // elige horario directamente, sin otro mensaje de "retomar"
+    expect((await db.case.findUniqueOrThrow({ where: { id: c2.id } })).step).toBe("HORARIO_ELEGIDO");
   });
 
   it("cancelar pide confirmación", async () => {
