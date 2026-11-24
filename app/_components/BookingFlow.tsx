@@ -48,7 +48,7 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
   const [editing, setEditing] = useState<View | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<CaseT | null>(null); // cita recién confirmada (ya no es un trámite "abierto")
+  const [done, setDone] = useState<CaseT | null>(null); // trámite recién confirmado o cancelado (ya no está "abierto")
   const seenChannel = useRef<string | null>(null);
   const lastCaseId = useRef<string | null>(null);
   const onMeRef = useRef(onMe);
@@ -60,10 +60,10 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
     try {
       const m = await api<Me>("/api/auth/me", { as: channel });
       const c = m.activeCase && OPEN.has(m.activeCase.step) ? m.activeCase : null;
-      // El trámite que estábamos viendo se cerró (p. ej. el asesor confirmó la cita): mostrar el resultado.
+      // El trámite que estábamos viendo se cerró (el asesor confirmó la cita, se canceló por WhatsApp…): mostrar el resultado.
       if (!c && lastCaseId.current) {
         const prev = await api<{ case: CaseT }>(`/api/cases/${lastCaseId.current}`, { as: channel }).catch(() => null);
-        if (prev?.case.step === "CITA_CONFIRMADA") {
+        if (prev && (prev.case.step === "CITA_CONFIRMADA" || prev.case.step === "CANCELADO")) {
           setDone(prev.case);
           setBanner(null);
         }
@@ -111,7 +111,7 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
       let c = me?.activeCase && OPEN.has(me.activeCase.step) ? me.activeCase : null;
       if (!c) c = await api<CaseT>("/api/cases", { as: channel, body: {} });
       const r = await api<{ case: CaseT }>(`/api/cases/${c.id}`, { as: channel, body: { to, data, expectedVersion: c.version } });
-      if (r.case.step === "CITA_CONFIRMADA") setDone(r.case);
+      if (r.case.step === "CITA_CONFIRMADA" || r.case.step === "CANCELADO") setDone(r.case);
       setEditing(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) setBanner("Tu trámite se actualizó desde otro canal. Te mostramos la información más reciente.");
@@ -172,7 +172,21 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
                 <p className="text-slate-600">Pagas en la clínica el día de tu estudio.</p>
               </ConfirmStep>
             )}
-            {view === "LISTO" && c && (
+            {view === "LISTO" && c?.step === "CANCELADO" && (
+              <div className="text-center py-6 space-y-3">
+                <p className="mx-auto w-12 h-12 rounded-full bg-slate-100 text-slate-500 grid place-items-center text-2xl" aria-hidden>✕</p>
+                <h1 className="text-2xl font-semibold">Tu trámite fue cancelado</h1>
+                <p className="text-slate-500 line-through">
+                  {[d.estudio, d.clinica, d.horario && formatDate(String(d.horario))].filter(Boolean).join(" · ") || "Sin estudio elegido"}
+                </p>
+                <p className="text-sm text-slate-600">Cancelado desde {CHANNEL_NAME[c.lastChannel as keyof typeof CHANNEL_NAME]}.</p>
+                {d.motivoCancelacion && <p className="text-sm text-slate-500">Motivo: {String(d.motivoCancelacion)}</p>}
+                <button onClick={() => setDone(null)} className="mt-2 rounded-md border border-teal-600 text-teal-700 px-4 py-2 text-sm hover:bg-teal-50">
+                  Agendar otro estudio
+                </button>
+              </div>
+            )}
+            {view === "LISTO" && c && c.step !== "CANCELADO" && (
               <div className="text-center py-6 space-y-3">
                 <p className="text-4xl" aria-hidden>✅</p>
                 <h1 className="text-2xl font-semibold">¡Tu cita está confirmada!</h1>
@@ -205,6 +219,16 @@ export function BookingFlow({ channel, onMe }: { channel: "WEB" | "APP"; onMe?: 
               </div>
               {d.preparacion && <p className="mt-3 text-xs text-slate-600 bg-slate-50 rounded-md px-3 py-2">Preparación: {String(d.preparacion)}</p>}
               <p className="mt-3 text-xs text-slate-500">¿Tienes que irte? Tu avance queda guardado: continúa por WhatsApp o llamando al Call Center.</p>
+              <button
+                disabled={busy}
+                onClick={() =>
+                  confirm("¿Seguro que quieres cancelar tu trámite?") &&
+                  advance("CANCELADO", { motivo: `Cancelado por el paciente en ${channel === "APP" ? "la app" : "la web"}` })
+                }
+                className="mt-4 w-full rounded-md border border-red-200 text-red-700 px-3 py-2 text-sm hover:bg-red-50 disabled:opacity-50"
+              >
+                Cancelar trámite
+              </button>
             </aside>
           )}
         </div>
