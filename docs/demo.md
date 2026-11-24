@@ -43,8 +43,8 @@ npm run dev            # http://localhost:3000
 Muestra el tablero (E): *"Así se ven los pacientes moviéndose entre canales en tiempo real."*
 
 ### 0:45 — Paso 1: Web (1 min) · ventana A
-1. Elige **Ultrasonido abdominal** → **Clínica Culiacán Centro**.
-2. "Guarda tu avance": teléfono `667 000 0001` → **Enviar código** → copia el código de demo → **Verificar**.
+1. "Empieza con tu teléfono": `667 000 0001` → **Enviar código** → copia el código de demo → **Verificar**.
+2. Elige **Ultrasonido abdominal** → **Clínica Culiacán Centro**. Cada paso aparece al instante en el tablero (E).
 3. Ya pide horario. **Cierra la pestaña.**
 > "Ana tuvo que cerrar la computadora. Su avance no se perdió: está en el servidor, no en el navegador."
 

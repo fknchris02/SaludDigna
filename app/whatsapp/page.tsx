@@ -24,6 +24,10 @@ export default function WhatsAppSimulator() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial del historial
     load(active);
+    // Al volver a esta pestaña (p. ej. desde la web o la consola), se pone al día con lo que pasó en otros canales.
+    const onFocus = () => load(active);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [active, load]);
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" }); // con llaves: en Chrome reciente devuelve una Promise, no un cleanup
