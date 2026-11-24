@@ -10,6 +10,14 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Tablero OmniTrack (design/design.html) */
+  --font-jakarta: var(--font-plus-jakarta);
+  --color-sd-dark: #1e2530;
+  --color-sd-blue: #0066ff;
+  --color-sd-green: #00875a;
+  --color-sd-bg: #f3f6fb;
+  --shadow-soft-card: 0 10px 30px -5px rgba(0, 50, 120, 0.06), 0 4px 10px -2px rgba(0, 0, 0, 0.03);
+  --shadow-dark-panel: 0 25px 50px -12px rgba(15, 23, 42, 0.45);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -23,4 +31,22 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Tablero OmniTrack: los nodos del mapa se elevan al pasar el cursor (design/design.html) */
+.omni-node > * {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s;
+}
+.omni-node:hover {
+  z-index: 50;
+}
+.omni-node:hover > * {
+  transform: translateY(-4px) scale(1.02);
+  box-shadow: 0 16px 32px -8px rgba(0, 102, 255, 0.18);
+}
+@media (prefers-reduced-motion: reduce) {
+  .omni-node > *,
+  .omni-node {
+    transition: none !important;
+  }
 }

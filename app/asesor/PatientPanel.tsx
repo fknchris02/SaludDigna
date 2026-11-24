@@ -35,10 +35,16 @@ export function PatientPanel({ patientId }: { patientId: string }) {
   const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sinceRef = useRef<string | null>(null); // último evento ya cargado: SSE arranca desde ahí
 
+  const [gone, setGone] = useState(false);
   const load = useCallback(async () => {
-    const d = await api<Detail>(`/api/staff/patients/${patientId}`, { as: "CALL_CENTER" });
-    sinceRef.current ??= d.timeline.at(-1)?.seq ?? "0";
-    setDetail(d);
+    try {
+      const d = await api<Detail>(`/api/staff/patients/${patientId}`, { as: "CALL_CENTER" });
+      sinceRef.current ??= d.timeline.at(-1)?.seq ?? "0";
+      setDetail(d);
+    } catch {
+      // Paciente borrado o sesión vencida (p. ej. tras `db:seed` entre ensayos): avisar en lugar de romper la pantalla.
+      setGone(true);
+    }
   }, [patientId]);
 
   useEffect(() => {
@@ -95,6 +101,14 @@ export function PatientPanel({ patientId }: { patientId: string }) {
     await load();
   }
 
+  if (gone) {
+    return (
+      <div role="alert" className="max-w-md rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        Este expediente ya no está disponible (¿se reinició la base de datos?).{" "}
+        <a href="/asesor" className="font-medium underline">Recarga la consola</a> y vuelve a buscar al paciente.
+      </div>
+    );
+  }
   if (!detail) return <p className="text-slate-500 text-sm">Cargando expediente…</p>;
   const { patient, activeCase: c } = detail;
   // El de IA solo si corresponde al último evento; mientras se recalcula, el de reglas (instantáneo).

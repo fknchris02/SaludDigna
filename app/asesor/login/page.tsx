@@ -18,8 +18,11 @@ export default function StaffLogin() {
     try {
       const r = await api<{ role: string }>("/api/auth/staff/login", { body: { email, password } });
       router.replace(r.role === "ADMIN" ? "/admin" : "/asesor");
+      // Next conserva el estado de esta página al volver (p. ej. tras "Salir"): dejar el formulario listo y sin la contraseña.
+      setPassword("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Error de red");
+    } finally {
       setBusy(false);
     }
   }
