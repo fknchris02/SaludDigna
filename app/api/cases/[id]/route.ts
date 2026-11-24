@@ -24,8 +24,16 @@ export async function GET(req: Request, { params }: Ctx) {
     if (actor.channel === "CALL_CENTER" && c.patientId) {
       await recordStaffAccess(actor.session.staffId, actor.session.role, c.patientId, c.id);
     }
-    const timeline = (await eventsSince({ caseId: c.id })).map(toJson);
-    return Response.json({ case: c, pending: pendingStep(c.step), timeline });
+    const events = await eventsSince({ caseId: c.id });
+    // Nombres del personal que intervino (solo para personal; el paciente no necesita verlos).
+    const actorIds = [...new Set(events.map((e) => e.actorId).filter((x): x is string => !!x))];
+    const actors =
+      actor.channel === "CALL_CENTER" && actorIds.length
+        ? Object.fromEntries(
+            (await db.staffUser.findMany({ where: { id: { in: actorIds } }, select: { id: true, nombre: true, role: true } })).map((s) => [s.id, s]),
+          )
+        : {};
+    return Response.json({ case: c, pending: pendingStep(c.step), timeline: events.map(toJson), actors });
   } catch (err) {
     return handleError(err);
   }

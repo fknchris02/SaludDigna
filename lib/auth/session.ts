@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { StaffRole } from "@prisma/client";
 import { jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
+import { db } from "@/lib/db";
 import { z } from "zod";
 import { EngineError } from "@/lib/engine/case";
 import { getOrCreateChannelIdentity, isVerifiedByStaff } from "@/lib/engine/identity";
@@ -54,10 +55,21 @@ export async function getSession<S extends Scope>(scope: S): Promise<SessionFor<
     const { payload } = await jwtVerify(token, key(), { algorithms: ["HS256"] });
     const schema = scope === "STAFF" ? StaffSession : PatientSession;
     const parsed = schema.safeParse(payload);
-    return parsed.success ? (parsed.data as SessionFor<S>) : null;
+    if (!parsed.success) return null;
+    return (await stillExists(parsed.data)) ? (parsed.data as SessionFor<S>) : null;
   } catch {
     return null; // firma inválida o expirada = sin sesión
   }
+}
+
+/**
+ * Una cookie válida puede apuntar a datos que ya no existen (p. ej. tras `npm run db:seed` entre ensayos).
+ * Sin esta revisión, el trámite se crearía para un paciente borrado y fallaría con 500.
+ */
+async function stillExists(s: PatientSession | StaffSession) {
+  if (s.kind === "staff") return !!(await db.staffUser.findUnique({ where: { id: s.staffId }, select: { id: true } }));
+  const identity = await db.channelIdentity.findUnique({ where: { id: s.identityId }, select: { patientId: true } });
+  return !!identity && (s.patientId === null || identity.patientId === s.patientId);
 }
 
 export async function clearSession(scope: Scope) {
