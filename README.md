@@ -25,6 +25,16 @@ npm run dev                   # http://localhost:3000
 
 Sin Docker: crea las bases `omnicanal` y `omnicanal_test` en tu PostgreSQL y ajusta `DATABASE_URL` / `TEST_DATABASE_URL` en `.env`.
 
+## Demo en 5 pasos
+
+Guion completo, preparación, plan B y preguntas del jurado: **[docs/demo.md](docs/demo.md)**.
+
+1. `npm run db:seed && npm run dev`; abre `/admin` en **incógnito** (`admin@demo.mx` / `admin123`).
+2. `/web`: Ultrasonido abdominal → Clínica Culiacán Centro → teléfono `667 000 0001` + código en pantalla → cierra la pestaña.
+3. `/whatsapp`: `Hola` → `15/04/1992` → el bot retoma el trámite de la web; elige horario, pregunta `¿necesito ayuno?`, pide `asesor`.
+4. `/asesor` (`asesor@demo.mx` / `asesor123`): busca `0001`, valida con `1992-04-15` + `0001`, revisa el resumen y confirma la cita.
+5. `/app`: entra con `667 000 0001` y ve la cita con su folio. Resiliencia: `npm run demo:resiliencia` (conflicto entre canales y mensaje duplicado).
+
 ## Credenciales de prueba
 
 | Rol | Acceso |
@@ -121,7 +131,8 @@ lib/engine/overview.ts       KPIs, etapas, transiciones y recorridos para el tab
 lib/format.ts, lib/labels.ts formato y etiquetas compartidos por servidor y navegador
 lib/engine/                  motor: trámites (advance), identidad/OTP, eventos y bus
 prisma/                      esquema, migraciones y seed
-docs/                        diagramas (Mermaid)
+docs/                        diagramas (Mermaid) y guion de la demo
+scripts/demo-resiliencia.mjs demo en vivo de conflicto entre canales e idempotencia
 ```
 
 ## Sesiones y canal
@@ -155,4 +166,4 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web y app del paciente, consola del asesor, tablero del administrador, IA con Claude (con respaldo por reglas), seed, pruebas, diagramas.
 
-Pendiente: webhook de Twilio (opcional), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: webhook de Twilio (opcional). Atajos conocidos: buscar `shortcut:` en el código.
