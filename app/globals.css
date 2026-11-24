@@ -20,11 +20,10 @@
   --shadow-dark-panel: 0 25px 50px -12px rgba(15, 23, 42, 0.45);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* La app está diseñada solo en modo claro: sin esto, con el sistema en modo oscuro el fondo se volvía negro
+   y todo lo semitransparente (p. ej. el panel del tablero) se veía gris. */
+:root {
+  color-scheme: light;
 }
 
 body {
