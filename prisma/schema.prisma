@@ -52,6 +52,8 @@ model ChannelIdentity {
   patientId  String?
   patient    Patient?  @relation(fields: [patientId], references: [id])
   verifiedAt DateTime?
+  // Estado de la conversación en canales de chat (qué se preguntó y qué opciones se ofrecieron).
+  convState  Json      @default("{}")
   createdAt  DateTime  @default(now())
   cases      Case[]
 

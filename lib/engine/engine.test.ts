@@ -1,21 +1,13 @@
 import type { Event } from "@prisma/client";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
+import { resetDb } from "@/test/db";
 import { advance, canTransition, createCase, EngineError, getActiveCase, pendingStep, resumeCase } from "./case";
+import { canAccessCase } from "@/lib/auth/session";
 import { bus } from "./events";
 import { getOrCreateChannelIdentity, normalizePhone, requestOtp, verifyAndLink, verifyByBirthdate } from "./identity";
 
 const future = new Date(Date.now() + 86_400_000).toISOString();
-
-async function reset() {
-  await db.event.deleteMany();
-  await db.case.deleteMany();
-  await db.channelIdentity.deleteMany();
-  await db.otpChallenge.deleteMany();
-  await db.patient.deleteMany();
-  await db.study.upsert({ where: { id: "us" }, update: {}, create: { id: "us", nombre: "Ultrasonido", precio: 45000, preparacion: "Ayuno" } });
-  await db.clinic.upsert({ where: { id: "c1" }, update: {}, create: { id: "c1", nombre: "Centro", ciudad: "Culiacán", direccion: "x" } });
-}
 
 async function newPatientCase() {
   const p = await db.patient.create({ data: { nombre: "Ana", telefono: "+526670000001", fechaNac: new Date("1992-04-15") } });
@@ -26,10 +18,22 @@ async function expectCode(promise: Promise<unknown>, code: EngineError["code"]) 
   await expect(promise).rejects.toSatisfy((e) => e instanceof EngineError && e.code === code);
 }
 
-beforeEach(reset);
+beforeEach(resetDb);
 afterAll(() => db.$disconnect());
 
 describe("reglas puras", () => {
+  it("permisos: el paciente solo ve sus trámites (o el anónimo de su identidad); el personal ve todos", () => {
+    const patient = { channel: "WEB" as const, session: { kind: "patient" as const, identityId: "i1", patientId: "p1" } };
+    const visitor = { channel: "WEB" as const, session: { kind: "patient" as const, identityId: "i2", patientId: null } };
+    const staff = { channel: "CALL_CENTER" as const, session: { kind: "staff" as const, staffId: "s", role: "ASESOR" as const, nombre: "x" } };
+    expect(canAccessCase(patient, { patientId: "p1", anonIdentityId: null })).toBe(true);
+    expect(canAccessCase(patient, { patientId: "p2", anonIdentityId: null })).toBe(false);
+    expect(canAccessCase(visitor, { patientId: null, anonIdentityId: "i2" })).toBe(true);
+    expect(canAccessCase(visitor, { patientId: null, anonIdentityId: "i1" })).toBe(false);
+    expect(canAccessCase(visitor, { patientId: null, anonIdentityId: null })).toBe(false);
+    expect(canAccessCase(staff, { patientId: "p9", anonIdentityId: null })).toBe(true);
+  });
+
   it("transiciones: avanzar uno, repetir, regresar, cancelar; no saltar ni reabrir", () => {
     expect(canTransition("INICIADO", "ESTUDIO_ELEGIDO")).toBe(true);
     expect(canTransition("INICIADO", "CLINICA_ELEGIDA")).toBe(false);
@@ -63,7 +67,7 @@ describe("advance()", () => {
     await step("CITA_CONFIRMADA");
     const done = await db.case.findUniqueOrThrow({ where: { id: c.id } });
     expect(done.step).toBe("CITA_CONFIRMADA");
-    expect(done.data).toMatchObject({ estudio: "Ultrasonido", clinica: "Centro", horario: future, folio: expect.stringMatching(/^SD-/) });
+    expect(done.data).toMatchObject({ estudio: "Ultrasonido", clinica: "Clínica Centro", horario: future, folio: expect.stringMatching(/^SD-/) });
     expect(done.version).toBe(6);
     expect(await getActiveCase(done.patientId!)).toBeNull();
   });

@@ -1,13 +1,35 @@
 import type { Event } from "@prisma/client";
+import { canAccessCase, requireActor, type Actor } from "@/lib/auth/session";
+import { db } from "@/lib/db";
+import { EngineError } from "@/lib/engine/case";
 import { bus, eventsSince, matches, toJson, type EventFilter } from "@/lib/engine/events";
+import { handleError } from "@/lib/http";
 
-// shortcut: sin autenticación; antes de exponerlo, restringir por rol (admin = todo, asesor = caso abierto, paciente = el suyo).
+/**
+ * Qué puede escuchar cada quien:
+ * admin = todo · asesor = un caso o paciente concreto · paciente = solo lo suyo (o su trámite anónimo).
+ */
+async function authorizedFilter(actor: Actor, url: URL): Promise<EventFilter> {
+  const caseId = url.searchParams.get("caseId") ?? undefined;
+  const patientId = url.searchParams.get("patientId") ?? undefined;
+  if (actor.channel === "CALL_CENTER") {
+    if (actor.session.role === "ADMIN" || caseId || patientId) return { caseId, patientId };
+    throw new EngineError("FORBIDDEN", "El asesor debe indicar caseId o patientId");
+  }
+  if (actor.session.patientId) return { caseId, patientId: actor.session.patientId };
+  const c = caseId ? await db.case.findUnique({ where: { id: caseId } }) : null;
+  if (!c || !canAccessCase(actor, c)) throw new EngineError("FORBIDDEN", "Sin acceso a estos eventos");
+  return { caseId };
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const filter: EventFilter = {
-    caseId: url.searchParams.get("caseId") ?? undefined,
-    patientId: url.searchParams.get("patientId") ?? undefined,
-  };
+  let filter: EventFilter;
+  try {
+    filter = await authorizedFilter(await requireActor(req), url);
+  } catch (err) {
+    return handleError(err);
+  }
   // El navegador manda Last-Event-ID solo al reconectar: reenviamos lo que se perdió durante el corte.
   const since = req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? "0";
   let lastSent = /^\d+$/.test(since) ? BigInt(since) : 0n;
