@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  WEB
+  WHATSAPP
+  CALL_CENTER
+  APP
+  SYSTEM
+}
+
+enum CaseStep {
+  INICIADO
+  ESTUDIO_ELEGIDO
+  CLINICA_ELEGIDA
+  HORARIO_ELEGIDO
+  DATOS_CONFIRMADOS
+  CITA_CONFIRMADA
+  CANCELADO
+}
+
+enum StaffRole {
+  ASESOR
+  ADMIN
+}
+
+// Identidad: la llave maestra es el teléfono E.164 verificado.
+model Patient {
+  id         String            @id @default(cuid())
+  nombre     String
+  fechaNac   DateTime          @db.Date
+  telefono   String            @unique // E.164, p. ej. +526671234567
+  email      String?
+  createdAt  DateTime          @default(now())
+  identities ChannelIdentity[]
+  cases      Case[]
+  events     Event[]
+}
+
+// Una identidad por canal (cookie web, número de WhatsApp, usuario de app).
+// patientId nulo = visitante anónimo aún no ligado.
+model ChannelIdentity {
+  id         String    @id @default(cuid())
+  channel    Channel
+  externalId String
+  patientId  String?
+  patient    Patient?  @relation(fields: [patientId], references: [id])
+  verifiedAt DateTime?
+  createdAt  DateTime  @default(now())
+  cases      Case[]
+
+  @@unique([channel, externalId])
+}
+
+// Contexto y estado del trámite. `version` = bloqueo optimista entre canales.
+model Case {
+  id                String           @id @default(cuid())
+  tipo              String           @default("AGENDAR_ESTUDIO")
+  step              CaseStep         @default(INICIADO)
+  data              Json             @default("{}")
+  version           Int              @default(1)
+  lastChannel       Channel
+  patientId         String?
+  patient           Patient?         @relation(fields: [patientId], references: [id])
+  // Mientras el visitante es anónimo, el caso cuelga de su identidad de canal.
+  anonIdentityId    String?
+  anonIdentity      ChannelIdentity? @relation(fields: [anonIdentityId], references: [id])
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  events            Event[]
+
+  @@index([patientId, updatedAt])
+}
+
+// Trazabilidad: bitácora append-only. Nunca se actualiza ni se borra.
+model Event {
+  seq            BigInt   @id @default(autoincrement()) // orden global; sirve de Last-Event-ID en SSE
+  type           String
+  channel        Channel
+  payload        Json     @default("{}")
+  caseId         String?
+  case           Case?    @relation(fields: [caseId], references: [id])
+  patientId      String?
+  patient        Patient? @relation(fields: [patientId], references: [id])
+  actorId        String? // StaffUser.id cuando actúa un asesor/admin
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([caseId, seq])
+  @@index([patientId, seq])
+}
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  nombre       String
+  passwordHash String
+  role         StaffRole
+}
+
+model OtpChallenge {
+  id        String   @id @default(cuid())
+  telefono  String
+  codeHash  String
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([telefono, createdAt])
+}
+
+// Catálogo para la demo
+model Study {
+  id           String @id
+  nombre       String
+  precio       Int // centavos MXN
+  preparacion  String
+}
+
+model Clinic {
+  id        String @id
+  nombre    String
+  ciudad    String
+  direccion String
+}
