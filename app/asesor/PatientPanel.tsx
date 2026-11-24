@@ -48,6 +48,20 @@ export function PatientPanel({ patientId }: { patientId: string }) {
   }, [load]);
 
   // Tiempo real: lo que haga el paciente en otro canal aparece aquí sin recargar.
+  // Resumen con IA: se pide aparte y reemplaza al de reglas cuando llega (se recalcula solo si hubo eventos nuevos).
+  const [aiSummary, setAiSummary] = useState<{ key: string; lines: string[]; source: string } | null>(null);
+  const summaryKey = detail?.timeline.at(-1)?.seq ?? null;
+  useEffect(() => {
+    if (summaryKey === null) return;
+    let alive = true;
+    api<{ lines: string[]; source: string }>(`/api/staff/patients/${patientId}/summary`, { as: "CALL_CENTER" })
+      .then((r) => alive && r.source === "llm" && setAiSummary({ ...r, key: summaryKey }))
+      .catch(() => {}); // sin IA se queda el resumen por reglas
+    return () => {
+      alive = false;
+    };
+  }, [patientId, summaryKey]);
+
   const ready = detail !== null;
   useEffect(() => {
     if (!ready) return;
@@ -83,6 +97,8 @@ export function PatientPanel({ patientId }: { patientId: string }) {
 
   if (!detail) return <p className="text-slate-500 text-sm">Cargando expediente…</p>;
   const { patient, activeCase: c } = detail;
+  // El de IA solo si corresponde al último evento; mientras se recalcula, el de reglas (instantáneo).
+  const summary = aiSummary && aiSummary.key === summaryKey ? aiSummary : detail.summary;
 
   const advance = (to: string, data: Record<string, unknown> = {}) =>
     act(() => api(`/api/cases/${c!.id}`, { as: "CALL_CENTER", body: { to, data, expectedVersion: c!.version } }), to === "CITA_CONFIRMADA" ? "Cita confirmada." : undefined);
@@ -113,10 +129,12 @@ export function PatientPanel({ patientId }: { patientId: string }) {
           <section className="bg-white rounded-xl border border-slate-200 p-4">
             <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
               Resumen del contexto
-              <span className="text-[11px] font-normal text-slate-400">{detail.summary.source === "llm" ? "IA" : "automático"}</span>
+              <span className={`text-[11px] font-normal ${summary.source === "llm" ? "rounded bg-violet-100 text-violet-800 px-1.5" : "text-slate-400"}`}>
+                {summary.source === "llm" ? "IA" : "automático"}
+              </span>
             </h3>
             <ul className="mt-2 space-y-1 text-sm">
-              {detail.summary.lines.map((l, i) => <li key={i}>{l}</li>)}
+              {summary.lines.map((l, i) => <li key={i}>{l}</li>)}
             </ul>
           </section>
 

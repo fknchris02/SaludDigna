@@ -16,5 +16,5 @@ Cada evento se guarda en `Event` (append-only) con `seq`, `channel`, `caseId`, `
 | `CASE_CANCELLED` | Trámite cancelado | `from`, `to`, `data.motivoCancelacion` |
 | `CONFLICT_DETECTED` | Escritura rechazada por versión vieja | `expectedVersion`, `currentVersion`, `to` |
 | `MESSAGE_IN` / `MESSAGE_OUT` | Mensaje de/para el paciente (WhatsApp); la fecha de nacimiento se guarda como `[fecha de nacimiento]` | `identityId`, `text`, `options` |
-| `INTENT_CLASSIFIED` | Se actuó sobre una intención (cancelar, asesor, preguntas) | `intent`, `source`: rules \| llm |
+| `INTENT_CLASSIFIED` | Se actuó sobre una intención (cancelar, asesor, preguntas) o la IA eligió una opción por texto libre | `intent` (incl. `ELEGIR_OPCION` + `option`), `source`: rules \| llm |
 | `ADVISOR_OPENED_CASE` | Personal abrió el expediente (auditoría, máx. 1 cada 10 min por persona y paciente); `actorId` = quién | `role` |

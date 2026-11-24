@@ -24,7 +24,7 @@ flowchart LR
   end
 
   DB[(PostgreSQL<br/>Patient · ChannelIdentity · Case · Event)]
-  LLM[[Claude Haiku<br/>opcional, con fallback]]
+  LLM[[Claude · AI_MODEL<br/>opcional, con respaldo por reglas]]
 
   WEB & WA & CC & APP -->|HTTP POST| API
   API --> ID & CS

@@ -44,6 +44,7 @@ export const INTENT_LABEL: Record<string, string> = {
   HABLAR_ASESOR: "hablar con un asesor",
   PREGUNTA_PREPARACION: "preparación del estudio",
   PREGUNTA_PRECIO: "precio",
+  ELEGIR_OPCION: "eligió una opción con sus palabras",
 };
 
 export const METHOD_LABEL: Record<string, string> = {

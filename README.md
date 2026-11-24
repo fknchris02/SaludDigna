@@ -73,6 +73,16 @@ Abre `http://localhost:3000/admin` (entra con `admin@demo.mx` / `admin123`). Tod
 
 El seed incluye 5 pacientes con recorridos multicanal en distintos pasos y antigüedades para que el tablero no arranque vacío.
 
+## Inteligencia artificial (Claude)
+
+Opcional y con respaldo: con `ANTHROPIC_API_KEY` en `.env` se activa; sin ella (o con `AI_DISABLED=1`) todo funciona con reglas.
+
+- **WhatsApp entiende lenguaje natural** (`lib/ai/intent.ts`): si las reglas no reconocen el mensaje, Claude clasifica la intención y mapea texto libre a la opción ofrecida ("el segundo día tempranito" → horario 4). Queda en la bitácora como `INTENT_CLASSIFIED` con `source: llm`.
+- **Resumen para el asesor** (`lib/ai/summary.ts`): 3-5 líneas con qué quiere el paciente, por dónde pasó, qué falta, sus dudas y la siguiente acción. La consola muestra al instante el resumen por reglas y lo cambia por el de IA (etiqueta "IA") cuando llega; se cachea por último evento.
+- **Privacidad:** al LLM no se mandan nombre, teléfono ni fecha de nacimiento; los números largos y correos en mensajes se reemplazan (`redact`).
+- **Resiliencia:** salidas estructuradas (zod), timeout de 6 s sin reintentos, respaldo del servidor ante rechazos (`fallbacks: "default"`) y, ante cualquier falla, regreso a reglas.
+- Modelo: `AI_MODEL` (por defecto `claude-opus-5-5`, esfuerzo bajo).
+
 ## Pruebas
 
 ```bash
@@ -94,7 +104,7 @@ app/api/cases/[id]           GET contexto + línea de tiempo (auditado si es per
 app/api/events               SSE en tiempo real (filtrado por permisos, replay con Last-Event-ID, since=latest)
 app/api/whatsapp/simulator   POST mensaje entrante · GET historial de un número
 app/api/staff/patients       GET búsqueda enmascarada (asesor)
-app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos
+app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos · /summary GET resumen IA
 app/api/catalog              GET estudios, clínicas y horarios
 app/api/patient/appointments GET trámite en curso, próximas citas e historial (paciente)
 app/web                      sitio web del paciente (cotizar y agendar)
@@ -106,8 +116,7 @@ app/asesor                   consola del asesor (+ /asesor/login)
 app/admin                    tablero del administrador
 lib/auth/session.ts          sesiones JWT por canal (cookies sd_web / sd_app / sd_staff) y permisos
 lib/channels/whatsapp.ts     manejador único de WhatsApp (identidad, retomar, opciones, intenciones)
-lib/ai/intent.ts             clasificación de intención (reglas; aquí se conectará el LLM)
-lib/ai/summary.ts            resumen del recorrido para el asesor (reglas; aquí se conectará el LLM)
+lib/ai/                      IA: intención y opción por texto libre, resumen para el asesor (reglas como respaldo)
 lib/engine/overview.ts       KPIs, etapas, transiciones y recorridos para el tablero
 lib/format.ts, lib/labels.ts formato y etiquetas compartidos por servidor y navegador
 lib/engine/                  motor: trámites (advance), identidad/OTP, eventos y bus
@@ -144,6 +153,6 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 ## Estado
 
-Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web y app del paciente, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
+Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web y app del paciente, consola del asesor, tablero del administrador, IA con Claude (con respaldo por reglas), seed, pruebas, diagramas.
 
-Pendiente: webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: webhook de Twilio (opcional), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
