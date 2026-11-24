@@ -35,6 +35,12 @@ Sin Docker: crea las bases `omnicanal` y `omnicanal_test` en tu PostgreSQL y aju
 
 Datos, precios y direcciones del seed son ficticios.
 
+## Sitio web del paciente
+
+Abre `http://localhost:3000/web`. Se puede cotizar sin cuenta: estudio → clínica → **guardar avance** (teléfono + código; el código de demo aparece en pantalla) → horario → confirmar datos → confirmar cita. Si el teléfono es nuevo, pide nombre y fecha de nacimiento sin gastar el código.
+
+La pestaña escucha en vivo: si el paciente sigue en WhatsApp o un asesor confirma la cita, la web se actualiza sola y avisa desde qué canal continuó.
+
 ## Simulador de WhatsApp
 
 Abre `http://localhost:3000/whatsapp`, deja el número de Ana y escribe **Hola**. El bot pide la fecha de nacimiento, reconoce el trámite pendiente (si lo empezó en otro canal) y continúa donde se quedó. Con un número que no existe, registra al paciente (nombre + fecha) y empieza desde cero. Palabras clave en cualquier momento: *cancelar*, *asesor*, *¿necesito ayuno?*, *¿cuánto cuesta?*.
@@ -81,11 +87,12 @@ app/api/auth/logout          POST cerrar sesión de un canal
 app/api/auth/me              GET quién soy + trámite pendiente
 app/api/cases                POST crear trámite · GET trámite abierto
 app/api/cases/[id]           GET contexto + línea de tiempo (auditado si es personal) · POST avanzar (409 si hay conflicto)
-app/api/events               SSE en tiempo real (filtrado por permisos, replay con Last-Event-ID)
+app/api/events               SSE en tiempo real (filtrado por permisos, replay con Last-Event-ID, since=latest)
 app/api/whatsapp/simulator   POST mensaje entrante · GET historial de un número
 app/api/staff/patients       GET búsqueda enmascarada (asesor)
 app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos
 app/api/catalog              GET estudios, clínicas y horarios
+app/web                      sitio web del paciente (cotizar y agendar)
 app/whatsapp                 simulador visual de WhatsApp
 app/api/admin/overview       GET datos del tablero (solo admin)
 app/asesor                   consola del asesor (+ /asesor/login)
@@ -130,6 +137,6 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 ## Estado
 
-Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
+Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web del paciente, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
 
-Pendiente: UI de Web / App, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: App del paciente, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.

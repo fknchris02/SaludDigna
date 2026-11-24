@@ -36,7 +36,11 @@ export async function GET(req: Request) {
   }
   // El navegador manda Last-Event-ID solo al reconectar: reenviamos lo que se perdió durante el corte.
   const since = req.headers.get("last-event-id") ?? url.searchParams.get("since") ?? "0";
-  let lastSent = /^\d+$/.test(since) ? BigInt(since) : 0n;
+  // since=latest: solo lo que ocurra desde ahora (pantallas que ya cargaron su estado por otra ruta).
+  let lastSent =
+    since === "latest" ? ((await db.event.aggregate({ _max: { seq: true } }))._max.seq ?? 0n)
+    : /^\d+$/.test(since) ? BigInt(since)
+    : 0n;
 
   const enc = new TextEncoder();
   let cleanup = () => {};
