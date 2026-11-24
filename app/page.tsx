@@ -4,7 +4,7 @@ const CHANNELS = [
   { href: "/whatsapp", title: "WhatsApp", desc: "Simulador del canal de WhatsApp (paciente)", ready: true },
   { href: "/asesor", title: "Call Center", desc: "Consola del asesor con contexto y línea de tiempo", ready: true },
   { href: "/web", title: "Sitio Web", desc: "Cotizar y agendar (paciente)", ready: true },
-  { href: "/app", title: "App", desc: "Citas e historial (paciente)", ready: false },
+  { href: "/app", title: "App", desc: "Citas, historial y continuar trámites (paciente)", ready: true },
   { href: "/admin", title: "Administrador", desc: "Tablero del patient journey en tiempo real", ready: true },
 ];
 
