@@ -6,6 +6,7 @@ Prototipo para el reto Salud Digna x TecNM HackaTec: un paciente inicia un trám
 - Flujo de datos / secuencia: [docs/secuencia.md](docs/secuencia.md)
 - Modelo de datos y máquina de estados: [docs/modelo-datos.md](docs/modelo-datos.md)
 - Catálogo de eventos: [docs/eventos.md](docs/eventos.md)
+- Integración con canales reales: [docs/integracion.md](docs/integracion.md)
 
 ## Requisitos
 
