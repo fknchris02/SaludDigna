@@ -41,6 +41,10 @@ Abre `http://localhost:3000/web`. Se puede cotizar sin cuenta: estudio → clín
 
 La pestaña escucha en vivo: si el paciente sigue en WhatsApp o un asesor confirma la cita, la web se actualiza sola y avisa desde qué canal continuó.
 
+## App del paciente
+
+Abre `http://localhost:3000/app` (marco de teléfono en escritorio; pantalla completa en celular) e inicia sesión con tu teléfono y el código de demo. Muestra la **próxima cita confirmada** (folio, clínica, dirección y preparación), el **trámite en curso** con lo que falta y en qué canal se dejó, y el historial. "Continuar aquí" retoma el trámite dentro de la app con el mismo flujo de la web (`app/_components/BookingFlow.tsx`). Se actualiza en vivo con lo que pase en otros canales.
+
 ## Simulador de WhatsApp
 
 Abre `http://localhost:3000/whatsapp`, deja el número de Ana y escribe **Hola**. El bot pide la fecha de nacimiento, reconoce el trámite pendiente (si lo empezó en otro canal) y continúa donde se quedó. Con un número que no existe, registra al paciente (nombre + fecha) y empieza desde cero. Palabras clave en cualquier momento: *cancelar*, *asesor*, *¿necesito ayuno?*, *¿cuánto cuesta?*.
@@ -92,7 +96,10 @@ app/api/whatsapp/simulator   POST mensaje entrante · GET historial de un númer
 app/api/staff/patients       GET búsqueda enmascarada (asesor)
 app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos
 app/api/catalog              GET estudios, clínicas y horarios
+app/api/patient/appointments GET trámite en curso, próximas citas e historial (paciente)
 app/web                      sitio web del paciente (cotizar y agendar)
+app/app                      app del paciente (citas y continuar trámites)
+app/_components/             BookingFlow (agendado Web/App), OtpLogin, Timeline
 app/whatsapp                 simulador visual de WhatsApp
 app/api/admin/overview       GET datos del tablero (solo admin)
 app/asesor                   consola del asesor (+ /asesor/login)
@@ -137,6 +144,6 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 ## Estado
 
-Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web del paciente, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
+Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, sitio web y app del paciente, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
 
-Pendiente: App del paciente, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
