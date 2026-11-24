@@ -194,3 +194,69 @@ export async function registerByWhatsApp(identityId: string, nombre: string, fec
   publish(events);
   return patient;
 }
+
+// ───────────── Call Center: el asesor valida al paciente antes de ver sus datos ─────────────
+
+const STAFF_VERIFICATION_TTL_MS = 2 * 3600_000;
+
+/** Búsqueda para el asesor: por dígitos del teléfono (≥4) o por nombre (≥3 letras). Devuelve datos enmascarados. */
+export async function searchPatients(q: string) {
+  const digits = q.replace(/\D/g, "");
+  const name = q.trim();
+  const where =
+    digits.length >= 4 ? { telefono: { contains: digits } }
+    : name.length >= 3 ? { nombre: { contains: name, mode: "insensitive" as const } }
+    : null;
+  if (!where) return [];
+  const found = await db.patient.findMany({
+    where,
+    take: 10,
+    orderBy: { nombre: "asc" },
+    include: { cases: { select: { step: true }, orderBy: { updatedAt: "desc" }, take: 5 } },
+  });
+  return found.map((p) => ({
+    id: p.id,
+    nombre: maskName(p.nombre),
+    telefono: maskPhone(p.telefono),
+    tramitePendiente: p.cases.some((c) => c.step !== "CITA_CONFIRMADA" && c.step !== "CANCELADO"),
+  }));
+}
+
+/** "Ana López Ruiz" → "Ana L. R." */
+export function maskName(nombre: string) {
+  const [first, ...rest] = nombre.trim().split(/\s+/);
+  return [first, ...rest.map((r) => r[0] + ".")].join(" ");
+}
+
+/** ¿Este asesor validó a este paciente en las últimas 2 h? (queda como evento: trazable y auditable) */
+export async function isVerifiedByStaff(staffId: string, patientId: string) {
+  const ev = await db.event.findFirst({
+    where: {
+      type: EventType.IDENTITY_VERIFIED,
+      actorId: staffId,
+      patientId,
+      createdAt: { gt: new Date(Date.now() - STAFF_VERIFICATION_TTL_MS) },
+    },
+    orderBy: { seq: "desc" },
+  });
+  return ev ? new Date(ev.createdAt.getTime() + STAFF_VERIFICATION_TTL_MS) : null;
+}
+
+/** El asesor confirma 2 datos que dicta el paciente: fecha de nacimiento y últimos 4 dígitos del teléfono. */
+export async function verifyByStaff(staffId: string, patientId: string, input: { fechaNac: string; last4: string }) {
+  const patient = await db.patient.findUnique({ where: { id: patientId } });
+  if (!patient) throw new EngineError("NOT_FOUND", "Paciente no encontrado");
+  const fails = await db.event.count({
+    where: { type: EventType.OTP_FAILED, actorId: staffId, patientId, createdAt: { gt: new Date(Date.now() - OTP_WINDOW_MS) } },
+  });
+  if (fails >= OTP_MAX_ATTEMPTS) throw new EngineError("IDENTITY_REQUIRED", "Demasiados intentos; espera 10 minutos o valida por otro medio");
+  const ok = patient.fechaNac.toISOString().slice(0, 10) === input.fechaNac && patient.telefono.endsWith(input.last4);
+  await recordEvent({
+    type: ok ? EventType.IDENTITY_VERIFIED : EventType.OTP_FAILED,
+    channel: "CALL_CENTER",
+    patientId,
+    actorId: staffId,
+    payload: { method: "ASESOR_2_DATOS" },
+  });
+  return ok;
+}

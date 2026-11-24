@@ -6,8 +6,8 @@ Cada evento se guarda en `Event` (append-only) con `seq`, `channel`, `caseId`, `
 |---|---|---|
 | `IDENTITY_ANONYMOUS_CREATED` | Primer contacto de un visitante en un canal | `identityId` |
 | `OTP_SENT` | Se genera un código | `telefono` enmascarado |
-| `OTP_FAILED` | Código o fecha de nacimiento incorrectos | `attempt` / `method`, `identityId` |
-| `IDENTITY_VERIFIED` | Verificación exitosa | `method`: OTP \| BIRTHDATE \| WHATSAPP_NUMBER (registro nuevo) |
+| `OTP_FAILED` | Código, fecha de nacimiento o validación del asesor incorrectos | `attempt` / `method`, `identityId`; `actorId` si fue un asesor |
+| `IDENTITY_VERIFIED` | Verificación exitosa | `method`: OTP \| BIRTHDATE \| WHATSAPP_NUMBER (registro nuevo) \| ASESOR_2_DATOS (`actorId` = asesor) |
 | `IDENTITY_LINKED` | La identidad del canal se liga al paciente | `identityId`, `channel`, `casesLinked` |
 | `CASE_CREATED` | Nuevo trámite | `tipo` |
 | `CASE_RESUMED` | El trámite continúa en un canal distinto al último | `from`, `to`, `step` |
@@ -17,4 +17,4 @@ Cada evento se guarda en `Event` (append-only) con `seq`, `channel`, `caseId`, `
 | `CONFLICT_DETECTED` | Escritura rechazada por versión vieja | `expectedVersion`, `currentVersion`, `to` |
 | `MESSAGE_IN` / `MESSAGE_OUT` | Mensaje de/para el paciente (WhatsApp); la fecha de nacimiento se guarda como `[fecha de nacimiento]` | `identityId`, `text`, `options` |
 | `INTENT_CLASSIFIED` | Se actuó sobre una intención (cancelar, asesor, preguntas) | `intent`, `source`: rules \| llm |
-| `ADVISOR_OPENED_CASE` | Personal abrió el expediente (auditoría); `actorId` = quién | `role` |
+| `ADVISOR_OPENED_CASE` | Personal abrió el expediente (auditoría, máx. 1 cada 10 min por persona y paciente); `actorId` = quién | `role` |

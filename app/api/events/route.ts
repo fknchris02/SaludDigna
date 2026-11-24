@@ -1,5 +1,5 @@
 import type { Event } from "@prisma/client";
-import { canAccessCase, requireActor, type Actor } from "@/lib/auth/session";
+import { assertStaffCanSee, canAccessCase, requireActor, type Actor } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { EngineError } from "@/lib/engine/case";
 import { bus, eventsSince, matches, toJson, type EventFilter } from "@/lib/engine/events";
@@ -13,8 +13,12 @@ async function authorizedFilter(actor: Actor, url: URL): Promise<EventFilter> {
   const caseId = url.searchParams.get("caseId") ?? undefined;
   const patientId = url.searchParams.get("patientId") ?? undefined;
   if (actor.channel === "CALL_CENTER") {
-    if (actor.session.role === "ADMIN" || caseId || patientId) return { caseId, patientId };
-    throw new EngineError("FORBIDDEN", "El asesor debe indicar caseId o patientId");
+    if (actor.session.role === "ADMIN") return { caseId, patientId };
+    if (!caseId && !patientId) throw new EngineError("FORBIDDEN", "El asesor debe indicar caseId o patientId");
+    // El asesor solo escucha a pacientes que validó; si filtra por caso, se valida el paciente de ese caso.
+    const owner = patientId ?? (await db.case.findUnique({ where: { id: caseId! } }))?.patientId ?? null;
+    await assertStaffCanSee(actor.session, owner);
+    return { caseId, patientId: owner ?? undefined };
   }
   if (actor.session.patientId) return { caseId, patientId: actor.session.patientId };
   const c = caseId ? await db.case.findUnique({ where: { id: caseId } }) : null;

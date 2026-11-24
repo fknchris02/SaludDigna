@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type Case, type CaseStep, type ChannelIdentity, type Patient } from "@prisma/client";
 import { classifyIntent, normalize, type Intent } from "@/lib/ai/intent";
 import { db } from "@/lib/db";
+import { formatDate, money, slots } from "@/lib/format";
+import { CHANNEL_NAME } from "@/lib/labels";
 import { advance, createCase, EngineError, getActiveCase, pendingStep, resumeCase } from "@/lib/engine/case";
 import { EventType, recordEvent } from "@/lib/engine/events";
 import {
@@ -25,7 +27,6 @@ type ConvState = {
 };
 
 const VERIFICATION_TTL_MS = 24 * 3600_000; // tras 24 h sin verificar, se vuelve a pedir la fecha de nacimiento
-const TZ = "America/Mazatlan"; // Sinaloa
 
 /**
  * Punto de entrada ÚNICO para mensajes de WhatsApp (simulador y Twilio).
@@ -327,19 +328,6 @@ export function parseDate(text: string): string | null {
   return iso;
 }
 
-/** Próximos 2 días hábiles (lun-sáb) a las 08, 10 y 12 h de Sinaloa. shortcut: horarios fijos; usar disponibilidad real de la clínica. */
-export function slots(now = new Date()): string[] {
-  const out: string[] = [];
-  for (let i = 1; out.length < 6 && i < 10; i++) {
-    const day = new Date(now.getTime() + i * 86400_000);
-    const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }).formatToParts(day);
-    const get = (t: string) => parts.find((p) => p.type === t)!.value;
-    if (get("weekday") === "Sun") continue;
-    for (const h of ["08", "10", "12"]) out.push(`${get("year")}-${get("month")}-${get("day")}T${h}:00:00-07:00`);
-  }
-  return out;
-}
-
 function summary(c: Case) {
   const d = c.data as Record<string, string | number>;
   return [d.estudio && `🩺 ${d.estudio}`, d.clinica && `🏥 ${d.clinica}`, d.horario && `🗓️ ${formatDate(String(d.horario))}`]
@@ -347,10 +335,5 @@ function summary(c: Case) {
     .join("\n");
 }
 
-function formatDate(iso: string) {
-  return new Intl.DateTimeFormat("es-MX", { timeZone: TZ, weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-}
-
-const money = (centavos: number) => (centavos / 100).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
 const firstName = (p: Patient) => p.nombre.split(" ")[0];
-const channelName = (c: string) => ({ WEB: "el sitio web", APP: "la app", CALL_CENTER: "el Call Center", WHATSAPP: "WhatsApp" })[c] ?? c;
+const channelName = (c: string) => CHANNEL_NAME[c as keyof typeof CHANNEL_NAME] ?? c;

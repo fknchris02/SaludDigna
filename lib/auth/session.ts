@@ -4,7 +4,7 @@ import { jwtVerify, SignJWT } from "jose";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { EngineError } from "@/lib/engine/case";
-import { getOrCreateChannelIdentity } from "@/lib/engine/identity";
+import { getOrCreateChannelIdentity, isVerifiedByStaff } from "@/lib/engine/identity";
 
 // Una cookie por canal: en la demo Web, App y consola del asesor conviven en el mismo navegador.
 export type Scope = "WEB" | "APP" | "STAFF";
@@ -112,4 +112,15 @@ export function canAccessCase(actor: Actor, c: { patientId: string | null; anonI
   if (actor.channel === "CALL_CENTER") return true;
   const s = actor.session;
   return (!!s.patientId && c.patientId === s.patientId) || c.anonIdentityId === s.identityId;
+}
+
+/**
+ * El asesor solo ve datos de un paciente que validó en la llamada (2 datos). El admin monitorea sin validar.
+ * Trámites anónimos (sin paciente) no son visibles para el asesor.
+ */
+export async function assertStaffCanSee(s: StaffSession, patientId: string | null) {
+  if (s.role === "ADMIN") return;
+  if (!patientId || !(await isVerifiedByStaff(s.staffId, patientId))) {
+    throw new EngineError("IDENTITY_REQUIRED", "Valida la identidad del paciente antes de ver su información");
+  }
 }

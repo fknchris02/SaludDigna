@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { canAccessCase, requireActor, type Actor } from "@/lib/auth/session";
+import { assertStaffCanSee, canAccessCase, requireActor, type Actor } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 import { advance, EngineError, pendingStep } from "@/lib/engine/case";
-import { eventsSince, EventType, recordEvent, toJson } from "@/lib/engine/events";
+import { eventsSince, recordStaffAccess, toJson } from "@/lib/engine/events";
 import { handleError } from "@/lib/http";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -11,6 +11,7 @@ async function loadAuthorized(actor: Actor, id: string) {
   const c = await db.case.findUnique({ where: { id } });
   // 404 también cuando no es suyo: no revelar que el trámite existe.
   if (!c || !canAccessCase(actor, c)) throw new EngineError("NOT_FOUND", "Caso no encontrado");
+  if (actor.channel === "CALL_CENTER") await assertStaffCanSee(actor.session, c.patientId);
   return c;
 }
 
@@ -19,16 +20,9 @@ export async function GET(req: Request, { params }: Ctx) {
   try {
     const actor = await requireActor(req);
     const c = await loadAuthorized(actor, (await params).id);
-    if (actor.channel === "CALL_CENTER") {
-      // Auditoría: quién del personal consultó qué expediente y cuándo.
-      await recordEvent({
-        type: EventType.ADVISOR_OPENED_CASE,
-        channel: "CALL_CENTER",
-        caseId: c.id,
-        patientId: c.patientId,
-        actorId: actor.session.staffId,
-        payload: { role: actor.session.role },
-      });
+    // Auditoría: quién del personal consultó qué expediente y cuándo.
+    if (actor.channel === "CALL_CENTER" && c.patientId) {
+      await recordStaffAccess(actor.session.staffId, actor.session.role, c.patientId, c.id);
     }
     const timeline = (await eventsSince({ caseId: c.id })).map(toJson);
     return Response.json({ case: c, pending: pendingStep(c.step), timeline });

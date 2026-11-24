@@ -41,6 +41,17 @@ Abre `http://localhost:3000/whatsapp`, deja el número de Ana y escribe **Hola**
 
 El simulador y el futuro webhook de Twilio usan el mismo manejador: `lib/channels/whatsapp.ts`.
 
+## Consola del asesor (Call Center)
+
+Abre `http://localhost:3000/asesor` (entra con `asesor@demo.mx` / `asesor123`).
+
+1. Busca al paciente por teléfono (4+ dígitos) o nombre (3+ letras): los datos salen **ocultos**.
+2. Valida su identidad con 2 datos que te dicta: fecha de nacimiento y últimos 4 dígitos del teléfono (máx. 3 intentos; la validación dura 2 h y queda en la bitácora con el nombre del asesor).
+3. Ves el expediente: resumen del contexto, trámite abierto con lo que falta, trámites anteriores y la **línea de tiempo en vivo** (lo que el paciente hace en WhatsApp aparece sin recargar).
+4. Continúa el trámite (elegir/cambiar estudio, clínica u horario, confirmar datos, confirmar cita) o cancélalo. Si el paciente cambió algo en otro canal al mismo tiempo, la consola avisa y recarga la versión nueva.
+
+El admin entra a la misma consola sin validar (monitoreo); el tablero `/admin` está pendiente.
+
 ## Pruebas
 
 ```bash
@@ -61,10 +72,16 @@ app/api/cases                POST crear trámite · GET trámite abierto
 app/api/cases/[id]           GET contexto + línea de tiempo (auditado si es personal) · POST avanzar (409 si hay conflicto)
 app/api/events               SSE en tiempo real (filtrado por permisos, replay con Last-Event-ID)
 app/api/whatsapp/simulator   POST mensaje entrante · GET historial de un número
+app/api/staff/patients       GET búsqueda enmascarada (asesor)
+app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos
+app/api/catalog              GET estudios, clínicas y horarios
 app/whatsapp                 simulador visual de WhatsApp
+app/asesor                   consola del asesor (+ /asesor/login)
 lib/auth/session.ts          sesiones JWT por canal (cookies sd_web / sd_app / sd_staff) y permisos
 lib/channels/whatsapp.ts     manejador único de WhatsApp (identidad, retomar, opciones, intenciones)
 lib/ai/intent.ts             clasificación de intención (reglas; aquí se conectará el LLM)
+lib/ai/summary.ts            resumen del recorrido para el asesor (reglas; aquí se conectará el LLM)
+lib/format.ts, lib/labels.ts formato y etiquetas compartidos por servidor y navegador
 lib/engine/                  motor: trámites (advance), identidad/OTP, eventos y bus
 prisma/                      esquema, migraciones y seed
 docs/                        diagramas (Mermaid)
@@ -78,7 +95,7 @@ Cada canal tiene su cookie (`sd_web`, `sd_app`, `sd_staff`) para que en la demo 
 |---|---|
 | Visitante web | crear y avanzar su trámite anónimo |
 | Paciente (Web/App) | solo sus trámites y sus eventos |
-| Asesor | cualquier trámite (cada consulta queda auditada); eventos de un caso/paciente |
+| Asesor | solo pacientes que validó en la llamada (2 datos, 2 h); cada consulta queda auditada |
 | Admin | todo, incluido el flujo completo de eventos |
 
 ## API rápida
@@ -99,6 +116,6 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 ## Estado
 
-Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, seed, pruebas, diagramas.
+Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, consola del asesor, seed, pruebas, diagramas.
 
-Pendiente: UI de Web / Asesor / App / Admin, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: UI de Web / App / Admin, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.

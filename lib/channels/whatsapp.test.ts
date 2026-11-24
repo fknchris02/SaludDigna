@@ -3,7 +3,8 @@ import { db } from "@/lib/db";
 import { advance, createCase, getActiveCase } from "@/lib/engine/case";
 import { getOrCreateChannelIdentity, requestOtp, verifyAndLink } from "@/lib/engine/identity";
 import { resetDb } from "@/test/db";
-import { handleInboundMessage, parseDate, pickOption, slots } from "./whatsapp";
+import { slots } from "@/lib/format";
+import { handleInboundMessage, parseDate, pickOption } from "./whatsapp";
 
 const ANA = "667 000 0001";
 let n = 0;

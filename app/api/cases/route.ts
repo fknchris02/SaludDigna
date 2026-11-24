@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ensurePatientSession, getActor, requireActor, type Actor } from "@/lib/auth/session";
+import { assertStaffCanSee, ensurePatientSession, getActor, requireActor, type Actor } from "@/lib/auth/session";
 import { createCase, EngineError, getActiveCase } from "@/lib/engine/case";
 import { handleError } from "@/lib/http";
 
@@ -12,6 +12,7 @@ export async function POST(req: Request) {
       (req.headers.get("x-sd-channel") === "WEB" ? { channel: "WEB", session: await ensurePatientSession("WEB") } : await requireActor(req));
     if (actor.channel === "CALL_CENTER") {
       const { patientId } = z.object({ patientId: z.string().min(1) }).parse(await req.json());
+      await assertStaffCanSee(actor.session, patientId);
       return Response.json(await createCase({ channel: actor.channel, patientId }), { status: 201 });
     }
     const { patientId, identityId } = actor.session;
@@ -32,6 +33,7 @@ export async function GET(req: Request) {
       actor.channel === "CALL_CENTER"
         ? z.string().min(1).parse(new URL(req.url).searchParams.get("patientId"))
         : actor.session.patientId;
+    if (actor.channel === "CALL_CENTER") await assertStaffCanSee(actor.session, patientId);
     if (!patientId) throw new EngineError("IDENTITY_REQUIRED", "Verifica tu teléfono para ver tus trámites");
     return Response.json(await getActiveCase(patientId));
   } catch (err) {
