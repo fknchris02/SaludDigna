@@ -50,7 +50,18 @@ Abre `http://localhost:3000/asesor` (entra con `asesor@demo.mx` / `asesor123`).
 3. Ves el expediente: resumen del contexto, trámite abierto con lo que falta, trámites anteriores y la **línea de tiempo en vivo** (lo que el paciente hace en WhatsApp aparece sin recargar).
 4. Continúa el trámite (elegir/cambiar estudio, clínica u horario, confirmar datos, confirmar cita) o cancélalo. Si el paciente cambió algo en otro canal al mismo tiempo, la consola avisa y recarga la versión nueva.
 
-El admin entra a la misma consola sin validar (monitoreo); el tablero `/admin` está pendiente.
+El admin puede entrar a la misma consola sin validar (monitoreo).
+
+## Tablero del administrador
+
+Abre `http://localhost:3000/admin` (entra con `admin@demo.mx` / `admin123`). Todo se actualiza **en vivo** por SSE:
+
+- **Indicadores:** trámites abiertos, pausados (sin actividad por 10 min: candidatos a recuperar), citas confirmadas y cambios de canal en 24 h, % de recorridos multicanal y conflictos detectados.
+- **Trámites por etapa actual** y **matriz de cambios de canal** (de dónde a dónde continúan los pacientes).
+- **Recorridos de pacientes:** etapa, canales recorridos en orden y estado; clic para ver la línea de tiempo del trámite.
+- **Actividad en vivo** de todos los canales y **auditoría** de accesos del personal.
+
+El seed incluye 5 pacientes con recorridos multicanal en distintos pasos y antigüedades para que el tablero no arranque vacío.
 
 ## Pruebas
 
@@ -76,11 +87,14 @@ app/api/staff/patients       GET búsqueda enmascarada (asesor)
 app/api/staff/patients/[id]  GET expediente (requiere validación) · /verify POST validar 2 datos
 app/api/catalog              GET estudios, clínicas y horarios
 app/whatsapp                 simulador visual de WhatsApp
+app/api/admin/overview       GET datos del tablero (solo admin)
 app/asesor                   consola del asesor (+ /asesor/login)
+app/admin                    tablero del administrador
 lib/auth/session.ts          sesiones JWT por canal (cookies sd_web / sd_app / sd_staff) y permisos
 lib/channels/whatsapp.ts     manejador único de WhatsApp (identidad, retomar, opciones, intenciones)
 lib/ai/intent.ts             clasificación de intención (reglas; aquí se conectará el LLM)
 lib/ai/summary.ts            resumen del recorrido para el asesor (reglas; aquí se conectará el LLM)
+lib/engine/overview.ts       KPIs, etapas, transiciones y recorridos para el tablero
 lib/format.ts, lib/labels.ts formato y etiquetas compartidos por servidor y navegador
 lib/engine/                  motor: trámites (advance), identidad/OTP, eventos y bus
 prisma/                      esquema, migraciones y seed
@@ -116,6 +130,6 @@ curl -N -b a.txt "localhost:3000/api/events?as=STAFF"
 
 ## Estado
 
-Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, consola del asesor, seed, pruebas, diagramas.
+Hecho: motor de contexto, identidad/OTP, eventos + SSE, API de trámites, sesiones y permisos por rol, manejador de WhatsApp + simulador, consola del asesor, tablero del administrador, seed, pruebas, diagramas.
 
-Pendiente: UI de Web / App / Admin, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.
+Pendiente: UI de Web / App, webhook de Twilio, IA con LLM (intención y resumen), guion de demo. Atajos conocidos: buscar `shortcut:` en el código.

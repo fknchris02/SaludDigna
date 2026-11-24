@@ -5,7 +5,7 @@ const CHANNELS = [
   { href: "/asesor", title: "Call Center", desc: "Consola del asesor con contexto y línea de tiempo", ready: true },
   { href: "/web", title: "Sitio Web", desc: "Cotizar y agendar (paciente)", ready: false },
   { href: "/app", title: "App", desc: "Citas e historial (paciente)", ready: false },
-  { href: "/admin", title: "Administrador", desc: "Tablero del patient journey en tiempo real", ready: false },
+  { href: "/admin", title: "Administrador", desc: "Tablero del patient journey en tiempo real", ready: true },
 ];
 
 export default function Home() {
