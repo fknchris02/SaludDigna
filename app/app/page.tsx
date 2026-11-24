@@ -20,14 +20,15 @@ const NEXT: Record<string, string> = {
 
 /** App del paciente: ve sus citas, retoma trámites de cualquier canal y agenda nuevos. */
 export default function PatientApp() {
+  console.log("DEBUG RENDER", typeof window !== "undefined" ? "client" : "server");
   const [summary, setSummary] = useState<Summary | null | "anon">(null);
   const [mode, setMode] = useState<"home" | "flow">("home");
 
   const load = useCallback(async () => {
     try {
       setSummary(await api<Summary>("/api/patient/appointments", { as: "APP" }));
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) setSummary("anon");
+    } catch (err: any) {
+      if (err?.status === 401 || err?.status === 403) setSummary("anon");
       else throw err;
     }
   }, []);

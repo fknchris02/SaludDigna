@@ -4,8 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:mobile": "next dev --hostname 0.0.0.0",
     "build": "next build",
     "start": "next start",
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android",
     "lint": "eslint",
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
@@ -15,6 +18,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
     "@prisma/client": "^6.19.3",
     "jose": "^6.2.18",
     "next": "16.4.6",

@@ -56,6 +56,10 @@ La pestaña escucha en vivo: si el paciente sigue en WhatsApp o un asesor confir
 
 Abre `http://localhost:3000/app` (marco de teléfono en escritorio; pantalla completa en celular) e inicia sesión con tu teléfono y el código de demo. Muestra la **próxima cita confirmada** (folio, clínica, dirección y preparación), el **trámite en curso** con lo que falta y en qué canal se dejó, y el historial. "Continuar aquí" retoma el trámite dentro de la app con el mismo flujo de la web (`app/_components/BookingFlow.tsx`). Se actualiza en vivo con lo que pase en otros canales.
 
+### Ejecutar en Android Studio
+
+La app Android usa Capacitor como contenedor de la misma interfaz y requiere que el backend Next.js esté accesible. Para un emulador Android, ejecuta `npm run dev:mobile` y luego `npm run cap:open`; compila y ejecuta el módulo `app` desde Android Studio. La configuración predeterminada apunta a `http://10.0.2.2:3000/app` (el localhost del emulador). Para un dispositivo físico, configura `CAPACITOR_SERVER_URL` con la IP LAN de tu PC antes de `npm run cap:sync`. Instrucciones completas: [docs/android.md](docs/android.md).
+
 ## Simulador de WhatsApp
 
 Abre `http://localhost:3000/whatsapp`, deja el número de Ana y escribe **Hola**. El bot pide la fecha de nacimiento, reconoce el trámite pendiente (si lo empezó en otro canal) y continúa donde se quedó. Con un número que no existe, registra al paciente (nombre + fecha) y empieza desde cero. Palabras clave en cualquier momento: *cancelar*, *asesor*, *¿necesito ayuno?*, *¿cuánto cuesta?*.
