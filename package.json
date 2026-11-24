@@ -10,7 +10,8 @@
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "demo:resiliencia": "node scripts/demo-resiliencia.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.13.0",
