@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Prisma, type Case, type CaseStep, type ChannelIdentity, type Patient } from "@prisma/client";
-import { classifyIntent, normalize, type Intent } from "@/lib/ai/intent";
+import { classifyMessage, normalize, type Intent } from "@/lib/ai/intent";
 import { db } from "@/lib/db";
 import { formatDate, money, slots } from "@/lib/format";
 import { CHANNEL_NAME } from "@/lib/labels";
@@ -47,7 +47,10 @@ export async function handleInboundMessage(input: { from: string; text: string; 
       caseId: state.caseId ?? null,
       idempotencyKey: `wa:in:${messageId}`,
       // No guardar la fecha de nacimiento en la bitácora.
-      payload: { identityId: identity.id, text: state.awaiting === "BIRTHDATE" ? "[fecha de nacimiento]" : text },
+      payload: {
+        identityId: identity.id,
+        text: state.awaiting === "BIRTHDATE" ? "[fecha de nacimiento]" : state.awaiting === "NAME" ? "[nombre]" : text,
+      },
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { replies: [], duplicate: true };
@@ -158,8 +161,22 @@ async function caseFlow(
   }
   if (justVerified) return withPrompt(pre, active, patient);
 
-  const { intent, source } = await classifyIntent(text);
-  const option = state.awaiting === "OPTION" ? pickOption(state.options ?? [], text) : null;
+  // Opción por número o texto exacto (determinista); si no, la IA interpreta el texto libre ("el del miércoles temprano").
+  const offered = state.awaiting === "OPTION" ? (state.options ?? []) : [];
+  let option = offered.length ? pickOption(offered, text) : null;
+  const { intent, option: aiOption, source } = option
+    ? { intent: "OTRO" as Intent, option: null, source: "rules" as const }
+    : await classifyMessage(text, offered.map((o) => o.label));
+  if (!option && aiOption) {
+    option = offered[aiOption - 1];
+    await recordEvent({
+      type: EventType.INTENT_CLASSIFIED,
+      channel: "WHATSAPP",
+      patientId: patient.id,
+      caseId: active?.id ?? null,
+      payload: { intent: "ELEGIR_OPCION", option: option.label, source },
+    });
+  }
 
   if (!option && intent !== "OTRO" && intent !== "SALUDO") {
     await recordEvent({
