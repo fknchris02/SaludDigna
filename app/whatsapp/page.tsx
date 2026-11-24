@@ -25,7 +25,9 @@ export default function WhatsAppSimulator() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial del historial
     load(active);
   }, [active, load]);
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth" }), [msgs]);
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth" }); // con llaves: en Chrome reciente devuelve una Promise, no un cleanup
+  }, [msgs]);
 
   async function send(body: string) {
     if (!body.trim() || busy) return;

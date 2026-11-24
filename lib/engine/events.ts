@@ -72,3 +72,15 @@ export function eventsSince(f: EventFilter, afterSeq = 0n, take = 500) {
 export function toJson(e: Event) {
   return { ...e, seq: e.seq.toString() };
 }
+
+/**
+ * Auditoría: el personal consultó el expediente. Se registra una vez cada 10 min por persona y paciente,
+ * para que las recargas en vivo de la consola no llenen la bitácora.
+ */
+export async function recordStaffAccess(staffId: string, role: string, patientId: string, caseId: string | null) {
+  const recent = await db.event.findFirst({
+    where: { type: EventType.ADVISOR_OPENED_CASE, actorId: staffId, patientId, createdAt: { gt: new Date(Date.now() - 10 * 60_000) } },
+  });
+  if (recent) return;
+  await recordEvent({ type: EventType.ADVISOR_OPENED_CASE, channel: "CALL_CENTER", patientId, caseId, actorId: staffId, payload: { role } });
+}
