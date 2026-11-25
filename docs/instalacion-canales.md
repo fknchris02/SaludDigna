@@ -2,6 +2,7 @@
 
 Esta guía describe qué se instala realmente en este workspace, cómo preparar cada canal y cuáles dependen de servicios externos. La aplicación principal concentra los canales de paciente y personal; no se instala un servidor distinto para cada ruta web.
 
+
 ## Alcance del workspace
 
 En la carpeta de trabajo hay dos aplicaciones:

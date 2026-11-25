@@ -58,6 +58,7 @@ flowchart LR
 ```
 
 El recorrido detallado de una persona es [secuencia.md](secuencia.md); el diseño futuro para proveedores reales está en [integracion.md](integracion.md).
+La versión que vincula cada requisito del PDF con un diagrama específico está en [diagramas-lineamientos.md](diagramas-lineamientos.md).
 
 ## Recorrido de una petición con escritura y actualización en vivo
 
@@ -117,5 +118,6 @@ La secuencia de instalación completa con comandos por sistema operativo está e
 | Modelo relacional | [modelo-datos.md](modelo-datos.md) | Patient, ChannelIdentity, Case, Event, StaffUser y OTP |
 | Estados del trámite | [modelo-datos.md](modelo-datos.md) | Transiciones, correcciones y cancelación |
 | Integración futura | [integracion.md](integracion.md) | Adaptadores de WhatsApp, Web/App, Call Center, Clínica y sistemas fuente |
+| Diagramas según lineamientos | [diagramas-lineamientos.md](diagramas-lineamientos.md) | Arquitectura, secuencia, modelo, Journey y roles alineados con el entregable |
 | Preparación e instalación | [instalacion-canales.md](instalacion-canales.md) | Topología actual, dependencias, canales y pasos de arranque |
 | Ejecución Android | [android.md](android.md) | Backend, emulador, teléfono físico y URL de despliegue |

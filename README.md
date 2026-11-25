@@ -8,6 +8,7 @@ Prototipo para el reto Salud Digna x TecNM HackaTec: un paciente inicia un trám
 
 - Instalación completa, por canal y resolución de problemas: [docs/instalacion-canales.md](docs/instalacion-canales.md)
 - Índice de diagramas y mapa de componentes: [docs/diagramas.md](docs/diagramas.md)
+- Diagramas alineados punto por punto con los lineamientos: [docs/diagramas-lineamientos.md](docs/diagramas-lineamientos.md)
 - Arquitectura: [docs/arquitectura.md](docs/arquitectura.md)
 - Flujo de datos / secuencia: [docs/secuencia.md](docs/secuencia.md)
 - Modelo de datos y máquina de estados: [docs/modelo-datos.md](docs/modelo-datos.md)
@@ -75,7 +76,7 @@ No subas `.env`, `.env.local`, credenciales ni secretos reales al repositorio. L
 Guion completo, preparación, plan B y preguntas del jurado: **[docs/demo.md](docs/demo.md)**.
 
 1. `npm run db:seed && npm run dev`; abre `/admin` en **incógnito** (`admin@demo.mx` / `admin123`).
-2. `/web`: Ultrasonido abdominal → Clínica Culiacán Centro → teléfono `667 000 0001` + código en pantalla → cierra la pestaña.
+2. `/web`: verifica el teléfono `667 000 0001` con el código de demo; después elige Ultrasonido abdominal y Clínica Culiacán Centro. Cierra la pestaña tras guardar el avance.
 3. `/whatsapp`: `Hola` → `15/04/1992` → el bot retoma el trámite de la web; elige horario, pregunta `¿necesito ayuno?`, pide `asesor`.
 4. `/asesor` (`asesor@demo.mx` / `asesor123`): busca `0001`, valida con `1992-04-15` + `0001`, revisa el resumen y confirma la cita.
 5. `/app`: entra con `667 000 0001` y ve la cita con su folio. Resiliencia: `npm run demo:resiliencia` (conflicto entre canales y mensaje duplicado).
@@ -92,7 +93,7 @@ Datos, precios y direcciones del seed son ficticios.
 
 ## Sitio web del paciente
 
-Abre `http://localhost:3000/web`. Se puede cotizar sin cuenta: estudio → clínica → **guardar avance** (teléfono + código; el código de demo aparece en pantalla) → horario → confirmar datos → confirmar cita. Si el teléfono es nuevo, pide nombre y fecha de nacimiento sin gastar el código.
+Abre `http://localhost:3000/web`. El flujo comienza verificando el teléfono con un código OTP (visible en pantalla en la demo); si es un teléfono nuevo, pide nombre y fecha de nacimiento para registrar el perfil. Después permite elegir estudio, clínica y horario, confirmar datos y confirmar la cita. Cada paso guardado puede retomarse desde otro canal.
 
 La pestaña escucha en vivo: si el paciente sigue en WhatsApp o un asesor confirma la cita, la web se actualiza sola y avisa desde qué canal continuó.
 
