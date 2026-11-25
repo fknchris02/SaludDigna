@@ -8,7 +8,7 @@ import { TimelineItem, type Ev } from "@/app/_components/Timeline";
 
 type CaseT = { id: string; step: string; version: number; lastChannel: string; data: Record<string, string | number>; updatedAt: string };
 type Detail = {
-  patient: { id: string; nombre: string; telefono: string; fechaNac: string; email: string | null };
+  patient: { id: string; nombre: string; telefono: string; fechaNac: string | null; email: string | null };
   verifiedUntil: string | null;
   activeCase: CaseT | null;
   pending: string | null;
@@ -123,7 +123,7 @@ export function PatientPanel({ patientId }: { patientId: string }) {
         <div>
           <h2 className="text-lg font-semibold">{patient.nombre}</h2>
           <p className="text-sm text-slate-600">
-            {patient.telefono} · Nac. {patient.fechaNac}
+            {patient.telefono} · Nac. {patient.fechaNac ?? "sin registrar"}
             {patient.email ? ` · ${patient.email}` : ""}
           </p>
         </div>
@@ -191,7 +191,7 @@ export function PatientPanel({ patientId }: { patientId: string }) {
             </span>
           </h3>
           <ol className="mt-3 space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-            {[...detail.timeline].reverse().map((e) => <TimelineItem key={e.seq} e={e} />)}
+            {[...detail.timeline].sort((x, y) => y.createdAt.localeCompare(x.createdAt) || Number(y.seq) - Number(x.seq)).map((e) => <TimelineItem key={e.seq} e={e} />)}
           </ol>
         </section>
       </div>
@@ -302,7 +302,7 @@ function StepAction({ step, patient, catalog, onSubmit }: {
     case "DATOS_CONFIRMADOS":
       return (
         <div className="space-y-2 text-sm">
-          <p>Confirma con el paciente: <strong>{patient.nombre}</strong>, tel. {patient.telefono}, nacimiento {patient.fechaNac}.</p>
+          <p>Confirma con el paciente: <strong>{patient.nombre}</strong>, tel. {patient.telefono}, nacimiento {patient.fechaNac ?? "sin registrar"}.</p>
           <button disabled={busy} onClick={() => run()} className="rounded-md bg-teal-700 text-white px-3 py-1.5 font-medium hover:bg-teal-800 disabled:opacity-50">
             Datos confirmados con el paciente
           </button>

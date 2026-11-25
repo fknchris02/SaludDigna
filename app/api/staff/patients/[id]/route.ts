@@ -27,7 +27,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       take: 5,
     });
     return Response.json({
-      patient: { ...patient, fechaNac: patient.fechaNac.toISOString().slice(0, 10) },
+      patient: { ...patient, fechaNac: patient.fechaNac?.toISOString().slice(0, 10) ?? null },
       verifiedUntil: await isVerifiedByStaff(staff.staffId, id),
       activeCase: active,
       pending: active ? pendingStep(active.step) : null,

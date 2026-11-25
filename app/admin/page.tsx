@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChannelChip, TimelineItem, type Ev } from "@/app/_components/Timeline";
 import { api, ApiError } from "@/lib/client/api";
 import { ago, formatTime } from "@/lib/format";
-import { CHANNEL_LABEL, EVENT_LABEL, STEP_LABEL, STEPS } from "@/lib/labels";
+import { CHANNEL_LABEL, EVENT_LABEL, STEP_LABEL, STEPS, SWI_PREFIX } from "@/lib/labels";
 import { CHANNEL_VISUAL, JourneyGraph, type CaseDetail, type JourneyStatus } from "./JourneyGraph";
 
 type Journey = {
@@ -30,7 +30,14 @@ type Overview = {
   audit: { seq: string; type: string; createdAt: string; staff: { nombre: string; role: string } | null; paciente: string | null; payload: Record<string, unknown> }[];
   recent: Ev[];
 };
-type Filter = "ALL" | "WHATSAPP" | "WEB" | "CALL_CENTER" | "APP" | "PAUSADO";
+// Trámites recibidos de SWI (GET /api/integraciones/swi/resumen), ya en formato de recorrido.
+type SwiOverview = {
+  kpis: { open: number; paused: number; confirmed24h: number; switches24h: number; multichannel: number; total: number };
+  steps: Record<string, number>;
+  transitions: Record<string, Record<string, number>>;
+  journeys: Journey[];
+};
+type Filter = "ALL" | "WHATSAPP" | "WEB" | "CALL_CENTER" | "APP" | "CLINICA" | "PAUSADO";
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "ALL", label: "Todos" },
@@ -38,7 +45,39 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "WEB", label: "Página Web" },
   { id: "CALL_CENTER", label: "Call Center" },
   { id: "APP", label: "App Salud Digna" },
+  { id: "CLINICA", label: "Clínica" },
 ];
+
+const isSwi = (id: string) => id.startsWith(SWI_PREFIX);
+const PAGE = 24; // tarjetas por tanda en la lista de recorridos
+
+/** Suma los recorridos de SWI a los nuestros: un solo tablero para todos los canales. */
+function withSwi(o: Overview, s: SwiOverview | null): Overview {
+  if (!s?.kpis.total) return o;
+  const add = (a: Record<string, number>, b: Record<string, number>) => {
+    const r = { ...a };
+    for (const [k, v] of Object.entries(b)) r[k] = (r[k] ?? 0) + v;
+    return r;
+  };
+  const transitions = { ...o.transitions };
+  for (const [from, row] of Object.entries(s.transitions)) transitions[from] = add(transitions[from] ?? {}, row);
+  const n = o.journeys.length;
+  return {
+    ...o,
+    kpis: {
+      ...o.kpis,
+      open: o.kpis.open + s.kpis.open,
+      paused: o.kpis.paused + s.kpis.paused,
+      confirmed24h: o.kpis.confirmed24h + s.kpis.confirmed24h,
+      switches24h: o.kpis.switches24h + s.kpis.switches24h,
+      multichannelPct: Math.round((o.kpis.multichannelPct * n + 100 * s.kpis.multichannel) / (n + s.kpis.total)),
+    },
+    steps: add(o.steps, s.steps),
+    transitions,
+    channels: [...new Set([...o.channels, ...Object.keys(s.transitions), ...Object.values(s.transitions).flatMap((r) => Object.keys(r))])],
+    journeys: [...o.journeys, ...s.journeys].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+  };
+}
 
 const STATUS = {
   ACTIVO: { icon: "●", label: "Activo", cls: "text-emerald-700", badge: "Activo" },
@@ -55,6 +94,7 @@ export default function AdminDashboard() {
   const [live, setLive] = useState(false);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [q, setQ] = useState("");
+  const [limit, setLimit] = useState(PAGE);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [, setTick] = useState(0);
@@ -65,7 +105,12 @@ export default function AdminDashboard() {
   const load = useCallback(async () => {
     let d: Overview;
     try {
-      d = await api<Overview>("/api/admin/overview", { as: "CALL_CENTER" });
+      const [ours, swi] = await Promise.all([
+        api<Overview>("/api/admin/overview", { as: "CALL_CENTER" }),
+        // Si SWI falla, el tablero sigue con lo nuestro.
+        api<SwiOverview>("/api/integraciones/swi/resumen", { as: "CALL_CENTER" }).catch((err) => (console.warn("Sin datos de SWI:", err), null)),
+      ]);
+      d = withSwi(ours, swi);
     } catch (err) {
       // Sesión vencida o personal recreado (p. ej. tras `db:seed`): volver a iniciar sesión en lugar de romper la pantalla.
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) router.replace("/asesor/login");
@@ -84,7 +129,8 @@ export default function AdminDashboard() {
 
   const loadDetail = useCallback(async (id: string) => {
     try {
-      const d = await api<CaseDetail>(`/api/cases/${id}`, { as: "CALL_CENTER" });
+      const url = isSwi(id) ? `/api/integraciones/swi/tramites/${encodeURIComponent(id.slice(SWI_PREFIX.length))}` : `/api/cases/${id}`;
+      const d = await api<CaseDetail>(url, { as: "CALL_CENTER" });
       if (selectedRef.current === id) setDetail(d);
     } catch (err) {
       // Trámite borrado (404) o sesión vencida (401/403): load() elige otro recorrido o manda a iniciar sesión.
@@ -119,7 +165,8 @@ export default function AdminDashboard() {
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => {
         load();
-        if (selectedRef.current && ev.caseId === selectedRef.current) loadDetail(selectedRef.current);
+        const swiOfSelected = ev.type === "SWI_EVENTO" && selectedRef.current === SWI_PREFIX + String(ev.payload?.tramiteId);
+        if (selectedRef.current && (ev.caseId === selectedRef.current || swiOfSelected)) loadDetail(selectedRef.current);
       }, 400);
     };
     for (const t of Object.keys(EVENT_LABEL)) es.addEventListener(t, onEvent);
@@ -171,17 +218,17 @@ export default function AdminDashboard() {
             <svg className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
               <path d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar paciente, folio o estudio…"
+            <input value={q} onChange={(e) => { setQ(e.target.value); setLimit(PAGE); }} placeholder="Buscar paciente, folio o estudio…"
               className="w-full pl-10 pr-4 py-2 bg-slate-100/70 rounded-full text-xs font-semibold text-slate-700 placeholder-slate-400 outline-none focus:ring-2 focus:ring-sd-blue focus:bg-white transition-all shadow-inner" />
           </label>
           <nav className="flex items-center gap-1.5 overflow-x-auto py-1 max-w-full" aria-label="Filtrar recorridos por canal">
             {FILTERS.map((f) => (
-              <button key={f.id} onClick={() => setFilter(f.id)} aria-pressed={filter === f.id}
+              <button key={f.id} onClick={() => { setFilter(f.id); setLimit(PAGE); }} aria-pressed={filter === f.id}
                 className={`px-4 py-2 rounded-full text-xs whitespace-nowrap transition-all ${filter === f.id ? "font-bold bg-sd-dark text-white shadow-sm" : "font-medium text-slate-500 hover:text-slate-900"}`}>
                 {f.label}
               </button>
             ))}
-            <button onClick={() => setFilter(filter === "PAUSADO" ? "ALL" : "PAUSADO")} aria-pressed={filter === "PAUSADO"}
+            <button onClick={() => { setFilter(filter === "PAUSADO" ? "ALL" : "PAUSADO"); setLimit(PAGE); }} aria-pressed={filter === "PAUSADO"}
               className={`px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap border flex items-center gap-1.5 transition-colors ${filter === "PAUSADO" ? "bg-amber-500 text-white border-amber-500" : "text-amber-700 bg-amber-50 border-amber-200/50 hover:bg-amber-100"}`}>
               <span className={`w-1.5 h-1.5 rounded-full ${filter === "PAUSADO" ? "bg-white" : "bg-amber-500 animate-pulse"}`} aria-hidden />
               Pausados ({k.paused})
@@ -203,7 +250,8 @@ export default function AdminDashboard() {
         {/* Indicadores */}
         <section className="px-5 md:px-8 py-4 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6 border-b border-slate-100/60" aria-label="Indicadores">
           <Kpi label="Trámites abiertos" value={k.open} />
-          <Kpi label="Pausados (+10 min)" value={k.paused} hint="Candidatos a recuperar" tone="warning" />
+          <Kpi label="Pausados (+10 min)" value={k.paused} hint="Ver candidatos a recuperar →" tone="warning"
+            onClick={() => { setFilter("PAUSADO"); setLimit(PAGE); document.getElementById("recorridos")?.scrollIntoView({ behavior: "smooth" }); }} />
           <Kpi label="Citas confirmadas · 24 h" value={k.confirmed24h} />
           <Kpi label="Cambios de canal · 24 h" value={k.switches24h} />
           <Kpi label="Recorridos multicanal" value={`${k.multichannelPct}%`} hint="Pasaron por 2+ canales" />
@@ -215,13 +263,13 @@ export default function AdminDashboard() {
           <aside className="lg:w-[320px] p-5 md:p-6 flex flex-col gap-5 shrink-0 border-b lg:border-b-0 lg:border-r border-slate-100" aria-label="Recorrido seleccionado">
             {showMap ? <JourneySidebar j={selected} d={detail} /> : <p className="text-sm text-slate-400">{selected ? "Cargando recorrido…" : "Selecciona un recorrido abajo."}</p>}
           </aside>
-          <section className="flex-1 min-w-0 h-[640px] relative" aria-label="Mapa del recorrido">
+          <section className="flex-1 min-w-0 h-[752px] relative" aria-label="Mapa del recorrido">
             {showMap ? <JourneyGraph detail={detail} status={selected.status} /> : <div className="h-full grid place-items-center text-sm text-slate-400">Sin recorrido seleccionado.</div>}
           </section>
         </div>
 
         {/* Lista de recorridos (filtrable) */}
-        <section className="px-5 md:px-8 py-6 border-t border-slate-100/60">
+        <section id="recorridos" className="px-5 md:px-8 py-6 border-t border-slate-100/60 scroll-mt-4">
           <div className="flex items-baseline gap-3 mb-4">
             <h2 className="text-sm font-bold text-slate-800">Recorridos de pacientes</h2>
             <span className="text-xs text-slate-400">{journeys.length} de {data.journeys.length} · clic para ver su mapa</span>
@@ -230,12 +278,18 @@ export default function AdminDashboard() {
             <p className="text-sm text-slate-400">Ningún recorrido coincide con el filtro.</p>
           ) : (
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {journeys.map((j) => (
+              {journeys.slice(0, limit).map((j) => (
                 <li key={j.caseId}>
                   <JourneyCard j={j} active={j.caseId === selectedId} onOpen={() => { setSelectedId(j.caseId); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
                 </li>
               ))}
             </ul>
+          )}
+          {journeys.length > limit && (
+            <button onClick={() => setLimit(limit + PAGE)}
+              className="mt-4 mx-auto block rounded-full border border-slate-200 bg-white px-5 py-2 text-xs font-semibold text-slate-600 hover:border-sd-blue hover:text-sd-blue transition-colors">
+              Mostrar {Math.min(PAGE, journeys.length - limit)} más · quedan {journeys.length - limit}
+            </button>
           )}
         </section>
       </main>
@@ -255,16 +309,19 @@ export default function AdminDashboard() {
 
 function JourneySidebar({ j, d }: { j: Journey; d: CaseDetail }) {
   const st = STATUS[j.status];
-  const switches = d.timeline.filter((e) => e.type === "CASE_RESUMED").length;
+  const switches = d.timeline.filter((e) => e.type === "CASE_RESUMED").length || Math.max(0, j.channels.length - 1);
   // Quién intervino: personal por nombre; autoservicio por canal.
   const people = new Map<string, { label: string; sub: string; initials: string; channel: string; n: number }>();
   for (const e of d.timeline) {
     if (e.type === "ADVISOR_OPENED_CASE" && e.payload.role === "ADMIN") continue; // monitoreo, no atención
     const staff = e.actorId ? d.actors[e.actorId] : null;
-    const key = staff ? `staff:${e.actorId}` : `ch:${e.channel}`;
+    const swiCh = e.type === "SWI_EVENTO" ? String(e.payload.canal ?? "WEB") : null; // canal real del evento de SWI
+    const key = staff ? `staff:${e.actorId}` : `ch:${swiCh ?? e.channel}`;
     const row =
       people.get(key) ??
-      (staff
+      (swiCh
+        ? { label: swiCh === "CLINICA" ? "Clínica (recepción)" : CHANNEL_LABEL[swiCh] ?? swiCh, sub: "Registrado por SWI", initials: (CHANNEL_LABEL[swiCh] ?? swiCh).slice(0, 2).toUpperCase(), channel: swiCh, n: 0 }
+        : staff
         ? { label: staff.nombre, sub: staff.role === "ADMIN" ? "Administración" : "Asesor · Call Center", initials: staff.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2), channel: "CALL_CENTER", n: 0 }
         : {
             label: e.channel === "WHATSAPP" ? "Asistente de WhatsApp" : e.channel === "CALL_CENTER" ? "Call Center" : `${CHANNEL_LABEL[e.channel]} (autoservicio)`,
@@ -281,6 +338,7 @@ function JourneySidebar({ j, d }: { j: Journey; d: CaseDetail }) {
     <>
       <div className="bg-sd-dark text-white p-6 rounded-[28px] shadow-dark-panel">
         <span className="inline-block text-[11px] font-semibold text-slate-300 bg-white/10 px-3 py-1 rounded-full uppercase tracking-wider">{st.badge}</span>
+        {isSwi(j.caseId) && <span className="ml-2 inline-block text-[11px] font-semibold text-blue-200 bg-blue-500/20 px-3 py-1 rounded-full uppercase tracking-wider" title="Datos recibidos de la consola SWI">SWI</span>}
         <h2 className="text-2xl font-bold leading-tight tracking-tight mt-4">{j.paciente ?? "Visitante anónimo"}</h2>
         <p className="text-xs text-slate-400 mt-1">
           {j.folio ? <>Folio <span className="font-mono text-blue-400 font-semibold">#{j.folio}</span></> : <>Trámite <span className="font-mono text-blue-400">…{j.caseId.slice(-6)}</span></>}
@@ -345,14 +403,19 @@ function JourneyCard({ j, active, onOpen }: { j: Journey; active: boolean; onOpe
       </div>
       <p className="text-xs text-slate-500 mt-0.5 truncate">{j.estudio ?? "Estudio por elegir"}</p>
       <div className="mt-3"><StepDots step={j.step} /></div>
-      <div className="mt-3 flex items-center gap-1 flex-wrap">
-        {j.channels.map((c, i) => (
-          <span key={i} className="flex items-center gap-1">
-            {i > 0 && <span className="text-slate-300" aria-hidden>→</span>}
-            <ChannelChip channel={c} />
-          </span>
-        ))}
-        <span className="ml-auto text-[11px] text-slate-400">{ago(j.updatedAt)}</span>
+      <div className="mt-3 flex items-start gap-2">
+        <div className="flex items-center gap-1 flex-wrap min-w-0 flex-1">
+          {j.channels.map((c, i) => (
+            <span key={i} className="flex items-center gap-1">
+              {i > 0 && <span className="text-slate-300" aria-hidden>→</span>}
+              <ChannelChip channel={c} />
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+          {isSwi(j.caseId) && <span className="text-[10px] rounded border border-slate-200 px-1 text-slate-500" title="Datos recibidos de la consola SWI">SWI</span>}
+          <span className="text-[11px] text-slate-400 whitespace-nowrap">{ago(j.updatedAt)}</span>
+        </div>
       </div>
     </button>
   );
@@ -368,13 +431,15 @@ function Card({ title, subtitle, className = "", children }: { title: string; su
   );
 }
 
-function Kpi({ label, value, hint, tone }: { label: string; value: number | string; hint?: string; tone?: "warning" }) {
+function Kpi({ label, value, hint, tone, onClick }: { label: string; value: number | string; hint?: string; tone?: "warning"; onClick?: () => void }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className={`rounded-2xl px-4 py-3 border ${tone === "warning" && Number(value) > 0 ? "bg-amber-50/70 border-amber-200/60" : "bg-white border-slate-100 shadow-sm"}`}>
+    <Tag onClick={onClick}
+      className={`text-left rounded-2xl px-4 py-3 border ${tone === "warning" && Number(value) > 0 ? "bg-amber-50/70 border-amber-200/60" : "bg-white border-slate-100 shadow-sm"} ${onClick ? "hover:-translate-y-0.5 hover:shadow-soft-card transition-all" : ""}`}>
       <p className="text-[11px] font-semibold text-slate-500">{label}</p>
       <p className="text-2xl font-extrabold tabular-nums text-slate-900 mt-0.5">{value}</p>
-      {hint && <p className="text-[10px] text-slate-400">{hint}</p>}
-    </div>
+      {hint && <p className={`text-[10px] ${onClick ? "text-amber-700 font-semibold" : "text-slate-400"}`}>{hint}</p>}
+    </Tag>
   );
 }
 

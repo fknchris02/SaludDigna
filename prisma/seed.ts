@@ -29,6 +29,10 @@ async function main() {
   if (process.env.NODE_ENV === "production") throw new Error("No correr el seed en producción");
 
   // Limpia datos transaccionales (orden por llaves foráneas).
+  await db.swiPago.deleteMany();
+  await db.swiTramite.deleteMany();
+  await db.swiEvento.deleteMany();
+  await db.swiPaciente.deleteMany();
   await db.event.deleteMany();
   await db.case.deleteMany();
   await db.channelIdentity.deleteMany();
