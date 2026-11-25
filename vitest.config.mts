@@ -10,6 +10,7 @@ process.env.TEST_DATABASE_URL = TEST_DB; // lo usa vitest.setup.ts
 export default defineConfig({
   resolve: { alias: { "@": path.dirname(fileURLToPath(import.meta.url)) } },
   test: {
+    exclude: ["**/node_modules/**", "mobile-app/**"],
     env: { DATABASE_URL: TEST_DB, OTP_SECRET: "test-secret" },
     globalSetup: "./vitest.setup.ts",
     fileParallelism: false,

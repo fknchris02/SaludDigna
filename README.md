@@ -9,6 +9,7 @@ Prototipo para el reto Salud Digna x TecNM HackaTec: un paciente inicia un trám
 - Instalación completa, por canal y resolución de problemas: [docs/instalacion-canales.md](docs/instalacion-canales.md)
 - Índice de diagramas y mapa de componentes: [docs/diagramas.md](docs/diagramas.md)
 - Diagramas alineados punto por punto con los lineamientos: [docs/diagramas-lineamientos.md](docs/diagramas-lineamientos.md)
+- Caso de uso alternativo por cinco canales: [docs/caso-uso-5-canales.md](docs/caso-uso-5-canales.md)
 - Arquitectura: [docs/arquitectura.md](docs/arquitectura.md)
 - Flujo de datos / secuencia: [docs/secuencia.md](docs/secuencia.md)
 - Modelo de datos y máquina de estados: [docs/modelo-datos.md](docs/modelo-datos.md)
