@@ -6,7 +6,7 @@ import { api, ApiError } from "@/lib/client/api";
 import { PatientPanel } from "./PatientPanel";
 
 type Staff = { nombre: string; role: "ASESOR" | "ADMIN" };
-type Result = { id: string; nombre: string; telefono: string; tramitePendiente: boolean };
+type Result = { id: string; nombre: string; telefono: string; tramitePendiente: boolean; sinFechaNac: boolean };
 
 export default function AdvisorConsole() {
   const router = useRouter();
@@ -71,6 +71,7 @@ export default function AdvisorConsole() {
                   <span className="flex items-center gap-2 text-xs text-slate-500">
                     {r.telefono}
                     {r.tramitePendiente && <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5">Trámite pendiente</span>}
+                    {r.sinFechaNac && <span className="rounded bg-sky-100 text-sky-800 px-1.5 py-0.5">Prospecto</span>}
                   </span>
                 </button>
               </li>
@@ -108,7 +109,9 @@ function Selected({ result }: { result: Result }) {
 
 function VerifyForm({ result, onVerified }: { result: Result; onVerified: () => void }) {
   const [fechaNac, setFechaNac] = useState("");
+  const [referencia, setReferencia] = useState("");
   const [last4, setLast4] = useState("");
+  const prospecto = result.sinFechaNac;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -117,7 +120,7 @@ function VerifyForm({ result, onVerified }: { result: Result; onVerified: () => 
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/staff/patients/${result.id}/verify`, { as: "CALL_CENTER", body: { fechaNac, last4 } });
+      await api(`/api/staff/patients/${result.id}/verify`, { as: "CALL_CENTER", body: prospecto ? { last4, referencia } : { fechaNac, last4 } });
       onVerified();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Error de red");
@@ -133,14 +136,26 @@ function VerifyForm({ result, onVerified }: { result: Result; onVerified: () => 
         <p className="text-sm text-slate-600 mt-1">
           <span className="font-medium">{result.nombre}</span> · {result.telefono}
         </p>
-        <p className="text-sm text-slate-600 mt-2">Pide al paciente su fecha de nacimiento y los últimos 4 dígitos de su teléfono.</p>
+        <p className="text-sm text-slate-600 mt-2">
+          {prospecto
+            ? "Prospecto sin fecha de nacimiento (dejó solo su celular en una cotización). Pide los últimos 4 dígitos de su teléfono y el folio o el estudio de su cotización."
+            : "Pide al paciente su fecha de nacimiento y los últimos 4 dígitos de su teléfono."}
+        </p>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <label className="text-sm">
-          <span className="text-slate-700">Fecha de nacimiento</span>
-          <input type="date" required value={fechaNac} onChange={(e) => setFechaNac(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-2 py-2" />
-        </label>
+        {prospecto ? (
+          <label className="text-sm">
+            <span className="text-slate-700">Folio o estudio</span>
+            <input required minLength={4} value={referencia} onChange={(e) => setReferencia(e.target.value)} placeholder="SD-A1B2C3 o Mastografía"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-2" />
+          </label>
+        ) : (
+          <label className="text-sm">
+            <span className="text-slate-700">Fecha de nacimiento</span>
+            <input type="date" required value={fechaNac} onChange={(e) => setFechaNac(e.target.value)}
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-2" />
+          </label>
+        )}
         <label className="text-sm">
           <span className="text-slate-700">Últimos 4 dígitos</span>
           <input required inputMode="numeric" pattern="\d{4}" maxLength={4} value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, ""))}

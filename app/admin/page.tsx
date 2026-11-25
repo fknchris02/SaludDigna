@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SwiPagos } from "@/app/_components/SwiPagos";
 import { ChannelChip, type Ev } from "@/app/_components/Timeline";
 import type { AdminStats } from "@/lib/admin-stats";
 import { api, ApiError } from "@/lib/client/api";
@@ -458,6 +459,13 @@ function JourneySidebar({ j, d }: { j: Journey; d: CaseDetail }) {
           {d.timeline.length} eventos registrados · {switches} cambio{switches === 1 ? "" : "s"} de canal
         </p>
       </div>
+
+      {d.payments && d.payments.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm px-4 py-2">
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pt-2">Pagos (SWI)</p>
+          <SwiPagos pagos={d.payments} />
+        </div>
+      )}
 
       <div className="flex flex-col gap-2.5">
         <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Quién intervino</p>

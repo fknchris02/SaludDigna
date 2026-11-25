@@ -4,9 +4,10 @@ import { EngineError } from "@/lib/engine/case";
 import { isVerifiedByStaff, verifyByStaff } from "@/lib/engine/identity";
 import { handleError } from "@/lib/http";
 
-const Body = z.object({ fechaNac: z.iso.date(), last4: z.string().regex(/^\d{4}$/) });
+// Con fecha de nacimiento: fecha + últimos 4. Prospecto sin fecha: últimos 4 + folio o estudio de su cotización.
+const Body = z.object({ fechaNac: z.iso.date().optional(), last4: z.string().regex(/^\d{4}$/), referencia: z.string().trim().min(4).max(80).optional() });
 
-/** El asesor valida 2 datos que le dicta el paciente. */
+/** El asesor valida 2 datos que le dicta el paciente (o su cotización, si es un prospecto sin fecha de nacimiento). */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const staff = await requireStaff(req);

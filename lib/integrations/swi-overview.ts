@@ -4,7 +4,7 @@ import { pendingStep } from "@/lib/engine/case";
 import { toJson } from "@/lib/engine/events";
 import { PAUSE_AFTER_MS, type JourneyStatus } from "@/lib/engine/overview";
 import { SWI_PREFIX } from "@/lib/labels";
-import { SWI_EVENT_TYPE } from "./swi";
+import { isInternalSwi, pagoView, SWI_EVENT_TYPE, swiFolio } from "./swi";
 
 /**
  * Los trámites de SWI vistos como recorridos del tablero del admin (mismo formato que los nuestros).
@@ -90,7 +90,7 @@ export async function getSwiOverview(now = Date.now()) {
         paciente: t.patient.nombre,
         estudio: t.study?.nombre ?? null,
         clinica: t.clinic?.nombre ?? null,
-        folio: t.folioExterno,
+        folio: swiFolio(t.id),
         step: i.step,
         status: i.status,
         channels: i.channels.length ? i.channels : ["WEB"],
@@ -107,9 +107,10 @@ export async function getSwiJourney(id: string) {
   if (!t) return null;
   // Eventos del trámite + los de la paciente sin trámite (llamadas, mensajes, correos) que ocurrieron mientras este
   // era su trámite más reciente: desde que se creó hasta que creó el siguiente.
-  const [all, siblings] = await Promise.all([
+  const [all, siblings, pagos] = await Promise.all([
     db.event.findMany({ where: { type: SWI_EVENT_TYPE, patientId: t.patientId }, orderBy: [{ createdAt: "asc" }, { seq: "asc" }] }),
     db.swiTramite.findMany({ where: { patientId: t.patientId }, select: { id: true, creadoEnSwi: true } }),
+    db.swiPago.findMany({ where: { tramiteId: id }, orderBy: [{ creadoEnSwi: { sort: "asc", nulls: "last" } }, { recibidoEn: "asc" }] }),
   ]);
   const start = t.creadoEnSwi;
   const next = siblings
@@ -117,6 +118,7 @@ export async function getSwiJourney(id: string) {
     .filter((d): d is Date => !!d && !!start && d > start)
     .sort((a, b) => a.getTime() - b.getTime())[0];
   const timeline = all.filter((e) => {
+    if (isInternalSwi(e)) return false;
     const tid = (e.payload as { tramiteId?: string | null }).tramiteId;
     if (tid) return tid === id;
     return !!start && e.createdAt >= start && (!next || e.createdAt < next);
@@ -132,7 +134,7 @@ export async function getSwiJourney(id: string) {
           estudio: t.study?.nombre ?? "",
           clinica: t.clinic?.nombre ?? "",
           horario: t.fechaCita?.toISOString() ?? "",
-          folio: t.folioExterno ?? "",
+          folio: t.folioExterno ? `${swiFolio(t.id)} · ${t.folioExterno}` : swiFolio(t.id),
           estadoSwi: t.estado ?? "",
         },
         version: 0,
@@ -142,6 +144,7 @@ export async function getSwiJourney(id: string) {
       pending: pendingStep(step),
       timeline: timeline.map(toJson),
       actors: {},
+      payments: pagos.map(pagoView),
     },
   };
 }

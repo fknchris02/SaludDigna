@@ -2,8 +2,10 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { Prisma, type Channel, type Event, type SwiEvento } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { publish } from "@/lib/engine/events";
+import { EventType, publish } from "@/lib/engine/events";
 import { normalizePhone } from "@/lib/engine/identity";
+import { formatDate } from "@/lib/format";
+import { CHANNEL_LABEL, swiFolio } from "@/lib/labels";
 
 /**
  * Integración con SWI (la consola del call center de otro equipo). Guarda sus registros tal cual, en sus propias
@@ -17,6 +19,31 @@ type Tx = Prisma.TransactionClient;
 export const SWI_EVENT_TYPE = "SWI_EVENTO";
 export const SWI_MAX_REGISTROS = 40;
 const SIN_NOMBRE = "Sin nombre (SWI)";
+/** Evento interno de SWI (un asesor consultó el expediente): se guarda, pero no va a la línea de tiempo ni al resumen. */
+export const SWI_INTERNAL = new Set(["CONTEXTO_CONSULTADO"]);
+export const isInternalSwi = (e: { type: string; payload: unknown }) =>
+  e.type === SWI_EVENT_TYPE && SWI_INTERNAL.has(String((e.payload as { tipoEvento?: unknown } | null)?.tipoEvento));
+
+export type SwiGrupo = "PROXIMA" | "A_MEDIAS" | "PASADA" | "CANCELADA";
+/** Cómo ve el paciente un trámite de SWI en «Mis citas»: agendada o confirmada = próxima (o pasada), cancelada, o a medias. */
+export function swiGrupo(estado: string | null, fechaCita: Date | null, now = Date.now()): SwiGrupo {
+  if (estado === "CANCELADO") return "CANCELADA";
+  if (estado === "AGENDADO" || estado === "CONFIRMADO") return fechaCita && fechaCita.getTime() < now ? "PASADA" : "PROXIMA";
+  return "A_MEDIAS"; // COTIZANDO, CLINICA_SELECCIONADA, DATOS_CAPTURADOS, ABANDONADO o un estado nuevo
+}
+
+/** Un PAGO de SWI listo para mostrar. Solo APROBADO cuenta como pagado; PENDIENTE = pagará en clínica. */
+export type PagoView = {
+  id: string; tramiteId: string | null; monto: number | null; moneda: string | null; metodo: string | null; estado: string | null;
+  marca: string | null; ultimos4: string | null; referencia: string | null; canal: string | null; fecha: Date;
+};
+export const pagoView = (p: Prisma.SwiPagoGetPayload<object>): PagoView => ({
+  id: p.id, tramiteId: p.tramiteId, monto: p.monto === null ? null : Number(p.monto), moneda: p.moneda, metodo: p.metodo, estado: p.estado,
+  marca: p.marca, ultimos4: p.ultimos4, referencia: p.referencia, canal: p.canal, fecha: p.creadoEnSwi ?? p.recibidoEn,
+});
+
+// Las citas de WhatsApp traen además folioExterno "VT-…", que agrupa varios estudios de la misma cita.
+export { swiFolio };
 
 class SwiError extends Error {}
 
@@ -256,11 +283,58 @@ async function saveEvento(tx: Tx, e: z.infer<typeof Evento>) {
     detalle: (e.detalle ?? {}) as Prisma.InputJsonValue,
     fecha: e.fecha,
   };
+  const isNew = !(await tx.swiEvento.findUnique({ where: { id: e.id }, select: { id: true } }));
   const row = await tx.swiEvento.upsert({ where: { id: e.id }, create: { id: e.id, ...data }, update: data });
   if (row.tipoEvento === "TRAMITE_ELIMINADO") await markDeleted(tx, row);
   if (!patientId) return []; // huérfano: pasa a la línea de tiempo cuando llegue su paciente o su trámite
+  const out: Event[] = [];
   const ev = await toTimeline(tx, row, patientId);
-  return ev ? [ev] : [];
+  if (ev) out.push(ev);
+  // Aviso por WhatsApp solo al insertar el evento (un reenvío del mismo id no repite el aviso).
+  const aviso = isNew ? await whatsappNotice(tx, row, patientId) : null;
+  if (aviso) out.push(aviso);
+  return out;
+}
+
+const AVISO_TIPOS = new Set(["CITA_AGENDADA", "CITA_CONFIRMADA"]);
+const AVISO_MAX_EDAD_MS = 24 * 3600_000;
+
+/**
+ * Cita agendada o confirmada en SWI → mensaje en la conversación de WhatsApp de la paciente (mismo teléfono).
+ * Uno por trámite (agendada y luego confirmada no se repiten) y solo de citas recientes: si SWI reenvía su carga
+ * histórica no se manda un aviso por cada cita vieja. El texto sale del TRAMITE (estudio, clínica, hora de CDMX, folio).
+ * shortcut: queda en el simulador; con WhatsApp real, enviarlo con una plantilla aprobada por Meta.
+ */
+async function whatsappNotice(tx: Tx, e: SwiEvento, patientId: string) {
+  if (!AVISO_TIPOS.has(e.tipoEvento ?? "")) return null;
+  if (Date.now() - (e.fecha ?? e.recibidoEn).getTime() > AVISO_MAX_EDAD_MS) return null;
+  const idempotencyKey = `swi:aviso:${e.tramiteId ?? e.id}`;
+  if (await tx.event.findUnique({ where: { idempotencyKey }, select: { seq: true } })) return null;
+  const t = e.tramiteId ? await tx.swiTramite.findUnique({ where: { id: e.tramiteId }, include: { study: true, clinic: true } }) : null;
+  if (t?.eliminadoEn || t?.estado === "CANCELADO") return null;
+  const { telefono } = await tx.patient.findUniqueOrThrow({ where: { id: patientId }, select: { telefono: true } });
+  const identity = await tx.channelIdentity.upsert({
+    where: { channel_externalId: { channel: "WHATSAPP", externalId: telefono } },
+    create: { channel: "WHATSAPP", externalId: telefono, patientId },
+    update: {},
+  });
+  const text = [
+    `✅ Tu cita quedó ${e.tipoEvento === "CITA_CONFIRMADA" ? "confirmada" : "agendada"} en ${CHANNEL_LABEL[e.canal ?? ""] ?? "Salud Digna"}.`,
+    t && `Folio: *${swiFolio(t.id)}*${t.folioExterno ? ` (${t.folioExterno})` : ""}`,
+    t?.study && `🔬 ${t.study.nombre}`,
+    t?.clinic && `📍 ${t.clinic.nombre}${t.clinic.direccion ? `, ${t.clinic.direccion}` : ""}`,
+    t?.fechaCita && `🗓️ ${formatDate(t.fechaCita.toISOString())}`,
+    t?.study?.preparacion && `Preparación: ${t.study.preparacion}`,
+  ].filter(Boolean).join("\n");
+  return tx.event.create({
+    data: {
+      type: EventType.MESSAGE_OUT,
+      channel: "WHATSAPP",
+      patientId,
+      idempotencyKey,
+      payload: { identityId: identity.id, text, options: [], origen: "SWI", tramiteId: e.tramiteId },
+    },
+  });
 }
 
 /**
@@ -295,6 +369,7 @@ async function adoptOrphans(tx: Tx, where: { pacienteId: string } | { tramiteId:
  * SWI confirmó que un EVENTO no cambia después de enviado, así que la bitácora append-only basta.
  */
 async function toTimeline(tx: Tx, e: SwiEvento, patientId: string) {
+  if (SWI_INTERNAL.has(e.tipoEvento ?? "")) return null;
   const idempotencyKey = `swi:evento:${e.id}`;
   if (await tx.event.findUnique({ where: { idempotencyKey }, select: { seq: true } })) return null;
   const texto = resumen(e.tipoEvento, e.detalle);

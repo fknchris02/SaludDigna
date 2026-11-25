@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { EventType } from "@/lib/engine/events";
+import { pagoView } from "@/lib/integrations/swi";
 
 /**
  * Estadísticas del dashboard que no salen de la lista de recorridos: comparación con ayer, tiempo de conversión,
@@ -22,7 +23,7 @@ export async function getAdminStats(now = Date.now()) {
 
   const [
     prevOurs, prevSwi, ourConfirms, swiFirstConfirm, swiAbandoned, cases, swiByClinic, asesores,
-    staff24h, botOut24h, aiIntents24h, swiLast, swiLastHour,
+    staff24h, botOut24h, aiIntents24h, swiLast, swiLastHour, pagosByEstado, recentPagos,
   ] = await Promise.all([
     db.event.count({ where: { type: EventType.APPOINTMENT_CONFIRMED, createdAt: { gt: d48, lte: d24 } } }),
     db.swiEvento.count({ where: { tipoEvento: "CITA_CONFIRMADA", fecha: { gt: d48, lte: d24 } } }),
@@ -37,6 +38,8 @@ export async function getAdminStats(now = Date.now()) {
     db.event.count({ where: { type: EventType.INTENT_CLASSIFIED, createdAt: { gt: d24 }, payload: { path: ["source"], equals: "llm" } } }),
     db.swiEvento.aggregate({ _max: { recibidoEn: true } }),
     db.swiEvento.count({ where: { recibidoEn: { gt: h1 } } }),
+    db.swiPago.groupBy({ by: ["estado"], _count: { _all: true }, _sum: { monto: true } }),
+    db.swiPago.findMany({ orderBy: [{ creadoEnSwi: { sort: "desc", nulls: "last" } }, { recibidoEn: "desc" }], take: 6 }),
   ]);
 
   // Tiempo de conversión: de que se crea el trámite a que se confirma la cita.
@@ -70,6 +73,15 @@ export async function getAdminStats(now = Date.now()) {
   for (const g of swiByClinic) bump(g.clinicId!, g._count._all, SWI_CONFIRMED.includes(g.estado ?? ""));
   const clinicInfo = new Map((await db.clinic.findMany({ where: { id: { in: [...traffic.keys()] } } })).map((c) => [c.id, c]));
 
+  // Pagos de SWI: solo APROBADO cuenta como cobrado; PENDIENTE = pagará en clínica; RECHAZADO = intento fallido.
+  const byEstado = (e: string) => pagosByEstado.find((g) => g.estado === e);
+  const pagoTramites = new Map(
+    (await db.swiTramite.findMany({
+      where: { id: { in: recentPagos.map((p) => p.tramiteId!).filter(Boolean) } },
+      select: { id: true, patient: { select: { nombre: true } }, study: { select: { nombre: true } } },
+    })).map((t) => [t.id, t]),
+  );
+
   // Personal que actuó en las últimas 24 h.
   const people = new Map((await db.staffUser.findMany({ where: { id: { in: staff24h.map((s) => s.actorId!) } }, select: { id: true, nombre: true, role: true } })).map((s) => [s.id, s]));
 
@@ -89,6 +101,15 @@ export async function getAdminStats(now = Date.now()) {
     },
     bot: { messagesOut24h: botOut24h, aiIntents24h },
     swi: { lastReceivedAt: swiLast._max.recibidoEn, lastHour: swiLastHour },
+    payments: {
+      approved: { count: byEstado("APROBADO")?._count._all ?? 0, total: Number(byEstado("APROBADO")?._sum.monto ?? 0) },
+      pending: { count: byEstado("PENDIENTE")?._count._all ?? 0, total: Number(byEstado("PENDIENTE")?._sum.monto ?? 0) },
+      rejected: { count: byEstado("RECHAZADO")?._count._all ?? 0 },
+      recent: recentPagos.map((p) => {
+        const t = pagoTramites.get(p.tramiteId ?? "");
+        return { ...pagoView(p), paciente: t?.patient.nombre ?? null, estudio: t?.study?.nombre ?? null };
+      }),
+    },
   };
 }
 

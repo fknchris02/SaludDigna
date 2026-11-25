@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Ev } from "@/app/_components/Timeline";
+import type { Pago } from "@/app/_components/SwiPagos";
 import { ago, formatDate, formatTime, money, TZ } from "@/lib/format";
 import { CHANNEL_LABEL, EVENT_LABEL, INTENT_LABEL, PENDING_LABEL, STEP_LABEL, STEPS, SWI_EVENT_LABEL } from "@/lib/labels";
 
@@ -10,6 +11,7 @@ export type CaseDetail = {
   pending: string | null;
   timeline: Ev[];
   actors: Record<string, { nombre: string; role: string }>;
+  payments?: Pago[]; // solo trámites de SWI
 };
 export type JourneyStatus = "ACTIVO" | "PAUSADO" | "CONFIRMADO" | "CANCELADO";
 

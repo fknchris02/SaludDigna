@@ -1,7 +1,9 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
 import { resetDb } from "@/test/db";
-import { hasCardNumber, ingestSwi, resumen, validSwiKey } from "./swi";
+import { journeyFacts, summarizeJourney } from "@/lib/ai/summary";
+import { captureProspectData, matchesQuote, verifyByStaff } from "@/lib/engine/identity";
+import { hasCardNumber, ingestSwi, resumen, swiGrupo, validSwiKey } from "./swi";
 import { getSwiJourney, getSwiOverview } from "./swi-overview";
 
 beforeEach(resetDb);
@@ -166,6 +168,73 @@ describe("integración SWI", () => {
     expect(resumen("REPORTE_ENVIADO", { folio: "SD-1", pago: "EN_CLINICA", estudios: ["ECG", "PAP"], ruta: "/reportes/x.pdf" })).toBe("Folio SD-1 · paga en clínica · 2 estudios");
     expect(resumen("LLAMADA_RECIBIDA", { desde: "5614318300", proveedor: "android" })).toBe("Desde el ••8300 · android");
     expect(resumen("TRAMITE_ELIMINADO", { estudio: "ECG", motivo: "Duplicado" })).toBe("ECG · Duplicado");
+  });
+
+  it("cita agendada o confirmada en SWI: un aviso por WhatsApp por trámite, solo al insertar y solo si es reciente", async () => {
+    await ingestSwi([paciente(), tramite()]);
+    const ahora = new Date().toISOString();
+    const agendada = { tipo: "EVENTO", id: "e10", pacienteId: "p1", tramiteId: "t1", canal: "CALL_CENTER", tipoEvento: "CITA_AGENDADA", detalle: {}, fecha: ahora };
+    await ingestSwi([agendada, agendada]); // reenvío del mismo id: no repite
+    await ingestSwi([{ ...agendada, id: "e11", tipoEvento: "CITA_CONFIRMADA" }]); // mismo trámite: no repite
+    await ingestSwi([tramite({ id: "t2" }), { ...agendada, id: "e12", tramiteId: "t2", fecha: "2026-01-01T10:00:00Z" }]); // vieja: sin aviso
+
+    const p = await db.patient.findUniqueOrThrow({ where: { telefono: "+526671112233" } });
+    const avisos = await db.event.findMany({ where: { patientId: p.id, type: "MESSAGE_OUT" } });
+    expect(avisos).toHaveLength(1);
+    const identity = await db.channelIdentity.findUniqueOrThrow({ where: { channel_externalId: { channel: "WHATSAPP", externalId: "+526671112233" } } });
+    const aviso = avisos[0].payload as { identityId: string; text: string };
+    expect(aviso.identityId).toBe(identity.id);
+    expect(aviso.text).toContain("agendada en Call Center");
+    expect(aviso.text).toContain("Folio: *SD-T1*"); // folio visible: SD- + últimos 6 del id
+    expect(aviso.text).toContain("Rayos X de mano");
+    expect(aviso.text).toContain("Clínica Navolato");
+  });
+
+  it("CONTEXTO_CONSULTADO se guarda pero no pasa a la línea de tiempo ni al resumen", async () => {
+    await ingestSwi([paciente(), tramite()]);
+    const base = { tipo: "EVENTO", pacienteId: "p1", tramiteId: "t1", detalle: {}, fecha: "2026-12-01T15:00:00Z" };
+    await ingestSwi([
+      { ...base, id: "e20", canal: "CALL_CENTER", tipoEvento: "CONTEXTO_CONSULTADO" },
+      { ...base, id: "e21", canal: "WHATSAPP", tipoEvento: "PAGO_APROBADO", detalle: { monto: 320 } },
+    ]);
+    expect(await db.swiEvento.count()).toBe(2);
+    const p = await db.patient.findUniqueOrThrow({ where: { telefono: "+526671112233" } });
+    const events = await db.event.findMany({ where: { patientId: p.id }, orderBy: { seq: "asc" } });
+    expect(events.map((e) => (e.payload as { tipoEvento?: string }).tipoEvento)).toEqual(["PAGO_APROBADO"]);
+    // Resumen del asesor: el evento de SWI con su canal; al LLM, sin el teléfono de la paciente.
+    expect(summarizeJourney(events, null).lines.join(" ")).toContain("En SWI: Pago aprobado (WhatsApp)");
+    const facts = journeyFacts(events, null);
+    expect(facts).toContain("SWI · Pago aprobado (WhatsApp)");
+    expect(facts).not.toContain("6671112233");
+  });
+
+  it("«Mis citas»: agendada o confirmada = próxima (o pasada), cancelada, y el resto a medias", () => {
+    const futuro = new Date(Date.now() + 86400_000);
+    const pasado = new Date(Date.now() - 86400_000);
+    expect(swiGrupo("CONFIRMADO", futuro)).toBe("PROXIMA");
+    expect(swiGrupo("AGENDADO", null)).toBe("PROXIMA");
+    expect(swiGrupo("AGENDADO", pasado)).toBe("PASADA");
+    expect(swiGrupo("CANCELADO", futuro)).toBe("CANCELADA");
+    for (const e of ["COTIZANDO", "CLINICA_SELECCIONADA", "DATOS_CAPTURADOS", "ABANDONADO", null]) expect(swiGrupo(e, null)).toBe("A_MEDIAS");
+  });
+
+  it("prospecto sin fecha de nacimiento: el asesor lo valida con su celular y el folio o el estudio de su cotización", async () => {
+    await ingestSwi([tramite({ id: "cotizacion01abc9", estado: "ABANDONADO", folioExterno: "VT-77" })]);
+    const p = await db.patient.findUniqueOrThrow({ where: { telefono: "+526671112233" } });
+    expect(p.fechaNac).toBeNull();
+    const staff = await db.staffUser.upsert({ where: { email: "asesor-swi@test.mx" }, create: { email: "asesor-swi@test.mx", nombre: "Asesor", passwordHash: "x", role: "ASESOR" }, update: {} });
+
+    expect(await matchesQuote(p.id, "sd-01abc9")).toBe(true); // SD- + últimos 6 del id
+    expect(await matchesQuote(p.id, "vt-77")).toBe(true);
+    expect(await matchesQuote(p.id, "rayos x de mano")).toBe(true);
+    expect(await matchesQuote(p.id, "Mastografía")).toBe(false);
+    expect(await verifyByStaff(staff.id, p.id, { last4: "2233", referencia: "Rayos X" })).toBe(true);
+    expect(await verifyByStaff(staff.id, p.id, { last4: "0000", referencia: "Rayos X" })).toBe(false); // el celular también cuenta
+
+    // Captura de sus datos en ese contacto; no pisa datos que ya existen.
+    await captureProspectData(staff.id, p.id, { nombre: "Rosa Díaz", fechaNac: "1988-07-09" });
+    expect(await db.patient.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ nombre: "Rosa Díaz" });
+    await expect(captureProspectData(staff.id, p.id, { nombre: "Otra", fechaNac: "1990-01-01" })).rejects.toThrow("ya tiene sus datos");
   });
 
   it("llave y detector de tarjetas", () => {

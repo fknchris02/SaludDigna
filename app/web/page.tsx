@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BookingFlow, type Me } from "@/app/_components/BookingFlow";
+import { SwiCitas } from "@/app/_components/SwiCitas";
 import { api } from "@/lib/client/api";
 
 export default function PatientWeb() {
@@ -35,7 +36,8 @@ export default function PatientWeb() {
           </div>
         </div>
       </header>
-      <main className="max-w-5xl mx-auto px-4 py-6 md:py-10">
+      <main className="max-w-5xl mx-auto px-4 py-6 md:py-10 space-y-6">
+        {patient && <div className="max-w-xl"><SwiCitas key={session} as="WEB" /></div>}
         <BookingFlow key={session} channel="WEB" onMe={(m) => setPatient(m.patient)} />
       </main>
     </div>

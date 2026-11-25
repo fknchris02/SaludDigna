@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
 import { formatDate, formatTime, money } from "@/lib/format";
 import { CHANNEL_LABEL, EVENT_LABEL, PENDING_LABEL, STEP_LABEL, STEPS } from "@/lib/labels";
+import { SwiPagos, type Pago } from "@/app/_components/SwiPagos";
 import { TimelineItem, type Ev } from "@/app/_components/Timeline";
 
 type CaseT = { id: string; step: string; version: number; lastChannel: string; data: Record<string, string | number>; updatedAt: string };
@@ -15,6 +16,7 @@ type Detail = {
   history: CaseT[];
   summary: { lines: string[]; source: string };
   timeline: Ev[];
+  swiPayments: Pago[];
 };
 type Catalog = { studies: { id: string; nombre: string; precio: number }[]; clinics: { id: string; nombre: string }[]; slots: string[] };
 
@@ -132,6 +134,8 @@ export function PatientPanel({ patientId }: { patientId: string }) {
         </span>
       </section>
 
+      {!patient.fechaNac && <CaptureData patientId={patient.id} nombre={patient.nombre} onSaved={(ok) => act(async () => ok, "Datos del paciente guardados.")} />}
+
       {banner && (
         <div role="status" className={`rounded-lg px-4 py-2 text-sm border ${BANNER_STYLE[banner.kind]}`}>
           {banner.text}
@@ -178,6 +182,13 @@ export function PatientPanel({ patientId }: { patientId: string }) {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {detail.swiPayments.length > 0 && (
+            <section className="bg-white rounded-xl border border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-700">Pagos registrados en SWI</h3>
+              <SwiPagos pagos={detail.swiPayments} />
             </section>
           )}
         </div>
@@ -317,4 +328,48 @@ function StepAction({ step, patient, catalog, onSubmit }: {
     default:
       return null;
   }
+}
+
+/** Prospecto sin fecha de nacimiento: el asesor captura sus datos en esta llamada (SWI los completa si se registra allá). */
+function CaptureData({ patientId, nombre, onSaved }: { patientId: string; nombre: string; onSaved: (ok: boolean) => void }) {
+  const [form, setForm] = useState({ nombre: nombre === "Sin nombre (SWI)" ? "" : nombre, fechaNac: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/staff/patients/${patientId}/datos`, { as: "CALL_CENTER", body: form });
+      onSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Error de red");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="bg-sky-50 rounded-xl border border-sky-200 p-4 flex flex-wrap items-end gap-3">
+      <div className="basis-full">
+        <h3 className="text-sm font-semibold text-sky-900">Prospecto: captura sus datos</h3>
+        <p className="text-xs text-sky-800">Solo dejó su celular en una cotización. Pide su nombre completo y su fecha de nacimiento.</p>
+      </div>
+      <label className="text-sm flex-1 min-w-[200px]">
+        <span className="text-slate-700">Nombre completo</span>
+        <input required minLength={3} value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-2 bg-white" />
+      </label>
+      <label className="text-sm">
+        <span className="text-slate-700">Fecha de nacimiento</span>
+        <input type="date" required value={form.fechaNac} onChange={(e) => setForm({ ...form, fechaNac: e.target.value })}
+          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-2 bg-white" />
+      </label>
+      <button disabled={busy} className="rounded-md bg-sky-700 text-white px-4 py-2 text-sm font-medium hover:bg-sky-800 disabled:opacity-60">
+        {busy ? "Guardando…" : "Guardar datos"}
+      </button>
+      {error && <p role="alert" className="basis-full text-sm text-red-700">{error}</p>}
+    </form>
+  );
 }

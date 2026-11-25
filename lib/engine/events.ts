@@ -19,6 +19,7 @@ export const EventType = {
   APPOINTMENT_CONFIRMED: "APPOINTMENT_CONFIRMED",
   CASE_CANCELLED: "CASE_CANCELLED",
   CONFLICT_DETECTED: "CONFLICT_DETECTED",
+  PATIENT_UPDATED: "PATIENT_UPDATED",
 } as const;
 export type EventType = (typeof EventType)[keyof typeof EventType];
 
