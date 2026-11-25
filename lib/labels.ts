@@ -1,6 +1,6 @@
 // Etiquetas legibles compartidas por servidor y navegador (sin dependencias de BD).
-export const CHANNEL_NAME = { WEB: "el sitio web", APP: "la app", CALL_CENTER: "el Call Center", WHATSAPP: "WhatsApp", SYSTEM: "el sistema" } as const;
-export const CHANNEL_LABEL: Record<string, string> = { WEB: "Web", APP: "App", CALL_CENTER: "Call Center", WHATSAPP: "WhatsApp", SYSTEM: "Sistema", CLINICA: "Clínica" };
+export const CHANNEL_NAME = { WEB: "el sitio web", APP: "la app", CALL_CENTER: "el Call Center", WHATSAPP: "WhatsApp", CLINICA: "la clínica", SYSTEM: "el sistema" } as const;
+export const CHANNEL_LABEL: Record<string, string> = { WEB: "Web", APP: "App", CALL_CENTER: "Call Center", WHATSAPP: "WhatsApp", CLINICA: "Clínica", SYSTEM: "Sistema" };
 
 export const STEPS = ["INICIADO", "ESTUDIO_ELEGIDO", "CLINICA_ELEGIDA", "HORARIO_ELEGIDO", "DATOS_CONFIRMADOS", "CITA_CONFIRMADA"] as const;
 export const STEP_LABEL: Record<string, string> = {
@@ -39,6 +39,19 @@ export const EVENT_LABEL: Record<string, string> = {
   CASE_CANCELLED: "Trámite cancelado",
   CONFLICT_DETECTED: "Conflicto entre canales",
   PATIENT_UPDATED: "Datos del paciente capturados",
+  CLINIC_CHECK_IN: "Llegada a clínica (Check-in)",
+  CLINIC_APPOINTMENT_BOOKED: "Cita agendada en mostrador",
+  CLINIC_RESULTS_DELIVERED: "Resultados entregados",
+  CLINIC_FAMILY_APPOINTMENT: "Cita para familiar",
+  CLINIC_CASE_DELETED: "Trámite eliminado en clínica",
+  CLINIC_PAYMENT_APPROVED: "Pago aprobado en clínica",
+  CLINIC_PAYMENT_REJECTED: "Pago rechazado en clínica",
+  CLINIC_PAYMENT_PENDING: "Pago pendiente en clínica",
+  CLINIC_PATIENT_REGISTERED: "Paciente registrado en clínica",
+  CLINIC_REPORT_SENT: "Reporte PDF en clínica",
+  CLINIC_STAFF_LOGIN: "Turno de recepción iniciado",
+  CLINIC_STAFF_LOGOUT: "Turno de recepción cerrado",
+  CLINIC_PATIENT_VIEWED: "Expediente consultado en clínica",
 };
 
 export const INTENT_LABEL: Record<string, string> = {

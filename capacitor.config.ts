@@ -1,6 +1,6 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
-const serverUrl = process.env.CAPACITOR_SERVER_URL ?? 'http://:3000/app';
+const serverUrl = process.env.CAPACITOR_SERVER_URL ?? 'http://10.35.10.109:3000/app';
 
 const config: CapacitorConfig = {
   appId: 'mx.saluddigna.omnicanal',

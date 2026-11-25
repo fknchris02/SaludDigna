@@ -24,7 +24,20 @@ const SWI_SIN_DETALLE = new Set(["CITA_PARA_FAMILIAR", "LLAMADA_RECIBIDA", "PACI
  */
 export function summarizeJourney(events: Event[], active: Case | null, now = Date.now()): { lines: string[]; source: "rules" | "llm" } {
   const lines: string[] = [];
-  const journey = events.filter((e) => ["CASE_CREATED", "STEP_COMPLETED", "CASE_RESUMED", "MESSAGE_IN", "APPOINTMENT_CONFIRMED"].includes(e.type) || isSwi(e));
+  const journey = events.filter(
+    (e) =>
+      [
+        "CASE_CREATED",
+        "STEP_COMPLETED",
+        "CASE_RESUMED",
+        "MESSAGE_IN",
+        "APPOINTMENT_CONFIRMED",
+        "CLINIC_CHECK_IN",
+        "CLINIC_APPOINTMENT_BOOKED",
+        "CLINIC_PAYMENT_APPROVED",
+        "CLINIC_RESULTS_DELIVERED",
+      ].includes(e.type) || isSwi(e),
+  );
   const channels = journey.map(channelOf).filter((c, i, a) => c !== "SYSTEM" && c !== a[i - 1]);
   if (channels.length) lines.push(`Recorrido: ${channels.map((c) => CHANNEL_LABEL[c]).join(" → ")}.`);
 
@@ -125,7 +138,11 @@ export function journeyFacts(events: Event[], active: Case | null, now = Date.no
       const sw = e.payload as SwiPayload;
       const detail = sw.texto && !SWI_SIN_DETALLE.has(sw.tipoEvento ?? "") ? `: ${redact(sw.texto).slice(0, 160)}` : "";
       lines.push(`${when} · SWI · ${swiLabel(e)}${detail}`);
-    }
+    } else if (e.type === "CLINIC_CHECK_IN") lines.push(`${when} · ${ch} · registró llegada en clínica${p.clinica ? ` (${String(p.clinica)})` : ""}`);
+    else if (e.type === "CLINIC_APPOINTMENT_BOOKED") lines.push(`${when} · ${ch} · agendó cita en mostrador${p.estudio ? ` (${String(p.estudio)})` : ""}`);
+    else if (e.type === "CLINIC_PAYMENT_APPROVED") lines.push(`${when} · ${ch} · pago aprobado en clínica`);
+    else if (e.type === "CLINIC_PAYMENT_REJECTED") lines.push(`${when} · ${ch} · pago rechazado en clínica`);
+    else if (e.type === "CLINIC_RESULTS_DELIVERED") lines.push(`${when} · ${ch} · recibió resultados en clínica`);
   }
   let tramite = "Sin trámite abierto.";
   if (active) {

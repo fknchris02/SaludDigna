@@ -7,7 +7,13 @@ import {
   wizardIndexFor,
   type BookingView,
 } from "../lib/bookingState";
-import { CANAL_NOMBRE, ESTADOS_EN_CURSO } from "../lib/constantes";
+import {
+  CANAL_NOMBRE,
+  ESTADOS_EN_CURSO,
+  esRegistroCompleto,
+  etiquetaParentesco,
+  mensajeRegistroIncompleto,
+} from "../lib/constantes";
 import { formatDate, formatMoney } from "../lib/format";
 import { aFechaCDMX, espaciosDisponibles, fechaLocal } from "../lib/horarios";
 import {
@@ -15,6 +21,7 @@ import {
   avanzarTramite,
   crearTramite,
   getClinicas,
+  getContexto,
   getEstudios,
   marcarPagoEnClinica,
   registrarPaciente,
@@ -197,7 +204,7 @@ export function BookingFlow({
     if (!active) return;
     setBanner(null);
 
-    if (!ctx.paciente.datosCompletos) {
+    if (!esRegistroCompleto(ctx.paciente)) {
       const check = validateRegistroValues(ctx.paciente.telefono, registro);
       if (!check.ok) {
         setBanner(check.error);
@@ -236,21 +243,30 @@ export function BookingFlow({
     setBusy(true);
     setBanner(null);
     try {
+      // Regla 2: verificar registro completo antes de AGENDAR / CONFIRMAR / pagar en CLINICA
+      const freshCtx = await getContexto(ctx.paciente.telefono, false);
+      if (!esRegistroCompleto(freshCtx.paciente)) {
+        const msg = mensajeRegistroIncompleto(freshCtx.paciente);
+        setRegistro(createInitialRegistro(freshCtx.paciente));
+        setBanner(msg);
+        setEditing("DATOS");
+        return;
+      }
+
       const ready = await ensureResumedIfAbandoned(active);
-      let agendado = await avanzarTramite(ready.id, "AGENDAR", {
-        estudioId: ready.estudio.id,
-        clinicaId: ready.clinica!.id,
-        fechaCita: ready.fechaCita,
-      });
+      // Regla 8a: CLINICA y FECHA ya se registraron paso a paso; en AGENDAR no mandamos todo junto.
+      let agendado = await avanzarTramite(ready.id, "AGENDAR");
       if (agendado.estado === "AGENDADO") {
-        agendado = await avanzarTramite(agendado.id, "CONFIRMAR", {});
+        agendado = await avanzarTramite(agendado.id, "CONFIRMAR");
       }
       if (payMode === "CLINICA") {
         try {
           const pagoRes = await marcarPagoEnClinica(agendado.id);
           agendado = pagoRes.tramite;
-        } catch {
-          // Si SWI no requiere registro de pago adicional, conservamos el trámite confirmado.
+        } catch (payErr) {
+          if (payErr instanceof SwiError && (payErr.status === 400 || payErr.status === 403)) {
+            setBanner(payErr.message);
+          }
         }
         setDone(agendado);
       } else {
@@ -260,7 +276,12 @@ export function BookingFlow({
       setEditing(null);
       await onReload();
     } catch (err) {
-      setBanner(err instanceof SwiError ? err.message : "No pudimos confirmar tu cita.");
+      const msg = err instanceof SwiError ? err.message : "No pudimos confirmar tu cita.";
+      setBanner(msg);
+      if (err instanceof SwiError && err.status === 400 && msg.toLowerCase().includes("completa su registro")) {
+        setRegistro(createInitialRegistro(ctx.paciente));
+        setEditing("DATOS");
+      }
     } finally {
       setBusy(false);
     }
@@ -458,17 +479,28 @@ export function BookingFlow({
         {view === "DATOS" ? (
           <View style={styles.stepContent}>
             <Text style={styles.stepTitle}>
-              {ctx.paciente.datosCompletos ? "Confirma tus datos" : "Completa tus datos"}
+              {esRegistroCompleto(ctx.paciente) ? "Confirma tus datos" : "Completa tus datos"}
             </Text>
-            {ctx.paciente.datosCompletos ? (
-              <Text style={styles.confirmBody}>
-                A nombre de <Text style={styles.bold}>{ctx.paciente.nombre}</Text>. Te enviaremos
-                la confirmación al teléfono que verificaste.
-              </Text>
+            {esRegistroCompleto(ctx.paciente) ? (
+              <View style={{ gap: 6 }}>
+                <Text style={styles.confirmBody}>
+                  A nombre de <Text style={styles.bold}>{ctx.paciente.nombre}</Text>. Te enviaremos
+                  la confirmación al teléfono que verificaste.
+                </Text>
+                {ctx.paciente.contactoNombre ? (
+                  <Text style={styles.stepSubtitle}>
+                    Familiar: <Text style={styles.bold}>{ctx.paciente.contactoNombre}</Text>
+                    {ctx.paciente.contactoParentesco
+                      ? ` (${etiquetaParentesco(ctx.paciente.contactoParentesco)})`
+                      : ""}
+                    {ctx.paciente.contactoTelefono ? ` · ${ctx.paciente.contactoTelefono}` : ""}
+                  </Text>
+                ) : null}
+              </View>
             ) : (
               <>
                 <Text style={styles.stepSubtitle}>
-                  Faltan algunos datos en tu expediente para agendar en clínica.
+                  {mensajeRegistroIncompleto(ctx.paciente)}
                 </Text>
                 <PatientRegistrationFields
                   value={registro}
@@ -489,7 +521,7 @@ export function BookingFlow({
               <Text style={styles.primaryBtnText}>
                 {busy
                   ? "Guardando…"
-                  : ctx.paciente.datosCompletos
+                  : esRegistroCompleto(ctx.paciente)
                     ? "Mis datos son correctos"
                     : "Guardar y continuar"}
               </Text>
@@ -688,9 +720,16 @@ export function BookingFlow({
 
       <PaymentModal
         tramite={paying}
+        telefono={ctx.paciente.telefono}
         nombrePaciente={ctx.paciente.nombre ?? ""}
         visible={Boolean(paying)}
         onClose={() => setPaying(null)}
+        onRegistroIncompleto={(msg) => {
+          setPaying(null);
+          setRegistro(createInitialRegistro(ctx.paciente));
+          setBanner(msg);
+          setEditing("DATOS");
+        }}
         onPaid={async (updated, msg) => {
           setPaying(null);
           setDone(updated);

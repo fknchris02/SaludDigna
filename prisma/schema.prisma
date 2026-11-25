@@ -12,6 +12,7 @@ enum Channel {
   WHATSAPP
   CALL_CENTER
   APP
+  CLINICA
   SYSTEM
 }
 

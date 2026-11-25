@@ -6,6 +6,7 @@ import { recordStaffAccess, toJson } from "@/lib/engine/events";
 import { isVerifiedByStaff } from "@/lib/engine/identity";
 import { handleError } from "@/lib/http";
 import { isInternalSwi, pagoView } from "@/lib/integrations/swi";
+import { emitSwiContextConsultedAsync } from "@/lib/server/swiSync";
 
 /** Expediente completo para el asesor (requiere validación previa): paciente, trámite abierto, resumen y línea de tiempo. */
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -20,6 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!patient) throw new EngineError("NOT_FOUND", "Paciente no encontrado");
     const active = await getActiveCase(id);
     await recordStaffAccess(staff.staffId, staff.role, id, active?.id ?? null);
+    emitSwiContextConsultedAsync(patient.telefono, "CLINICA");
 
     const events = (await db.event.findMany({ where: { patientId: id }, orderBy: { seq: "desc" }, take: 200 })).reverse().filter((e) => !isInternalSwi(e));
     const history = await db.case.findMany({

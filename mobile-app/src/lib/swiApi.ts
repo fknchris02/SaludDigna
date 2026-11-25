@@ -1,14 +1,19 @@
 import { APP_CANAL, REQUEST_TIMEOUT_MS, SWI_API_KEY, SWI_BASE_URL } from "../config";
 import type {
   Accion,
+  Canal,
   Clinica,
   Contexto,
+  EncuestaInput,
   Estudio,
   Paciente,
   RegistroPacienteInput,
   ResultadoPago,
+  SeguridadVerificacion,
+  SwiInteraccionTipo,
   Tramite,
 } from "../types/swi";
+import { SWI_INTERACCION_TIPOS } from "./constantes";
 import type { DatosTarjeta } from "./tarjetas";
 
 export class SwiError extends Error {
@@ -22,21 +27,22 @@ export class SwiError extends Error {
   }
 }
 
-export function buildSwiUrl(path: string, baseUrl = SWI_BASE_URL): string {
+export function buildSwiUrl(path: string, baseUrl = SWI_BASE_URL, canal: Canal = APP_CANAL): string {
   const cleanBase = baseUrl.trim().replace(/\/+$/, "");
   const apiBase = cleanBase.endsWith("/api") ? cleanBase : `${cleanBase}/api`;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const [pathname, rawQuery = ""] = normalizedPath.split("?");
   const params = new URLSearchParams(rawQuery);
-  if (!params.has("canal")) params.set("canal", APP_CANAL);
+  if (!params.has("canal")) params.set("canal", canal);
   return `${apiBase}${pathname}?${params.toString()}`;
 }
 
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type RequestOptions = {
-  method?: "GET" | "POST" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   body?: Record<string, unknown>;
+  canal?: Canal;
   baseUrl?: string;
   apiKey?: string;
   fetchImpl?: FetchLike;
@@ -44,7 +50,8 @@ export type RequestOptions = {
 
 export async function swiRequest<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const method = opts.method ?? (opts.body !== undefined ? "POST" : "GET");
-  const url = buildSwiUrl(path, opts.baseUrl);
+  const canal = opts.canal ?? APP_CANAL;
+  const url = buildSwiUrl(path, opts.baseUrl, canal);
   const apiKey = opts.apiKey ?? SWI_API_KEY;
   const fetchFn = opts.fetchImpl ?? fetch;
 
@@ -56,7 +63,7 @@ export async function swiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   let payload: string | undefined;
   if (opts.body !== undefined) {
     headers["Content-Type"] = "application/json";
-    payload = JSON.stringify({ canal: APP_CANAL, ...opts.body });
+    payload = JSON.stringify({ canal, ...opts.body });
   }
 
   const controller = new AbortController();
@@ -77,7 +84,7 @@ export async function swiRequest<T>(path: string, opts: RequestOptions = {}): Pr
         (typeof json.error === "string" && json.error) ||
         (typeof json.message === "string" && json.message) ||
         `Error del servidor (HTTP ${res.status}).`;
-      throw new SwiError(res.status, msg, json.detalles);
+      throw new SwiError(res.status, msg, json.detalles ?? json);
     }
     return json as T;
   } catch (err) {
@@ -108,7 +115,7 @@ export async function getClinicas(): Promise<Clinica[]> {
 }
 
 export function getContexto(telefono: string, registrar = false): Promise<Contexto> {
-  const qs = registrar ? "?registrar=1" : "";
+  const qs = registrar ? `?registrar=1&canal=${APP_CANAL}` : "";
   return swiRequest<Contexto>(`/pacientes/${encodeURIComponent(telefono)}/contexto${qs}`);
 }
 
@@ -130,6 +137,7 @@ export function registrarPaciente(
       telefonoFijo: datos.telefonoFijo.trim(),
       contactoNombre: datos.contactoNombre.trim(),
       contactoTelefono: datos.contactoTelefono.trim(),
+      contactoParentesco: datos.contactoParentesco,
     },
   });
 }
@@ -147,20 +155,30 @@ export async function avanzarTramite(
   accion: Accion,
   datos?: Record<string, unknown>,
 ): Promise<Tramite> {
+  const hasDatos = datos && Object.keys(datos).length > 0;
   const r = await swiRequest<{ tramite: Tramite }>(
     `/tramites/${encodeURIComponent(tramiteId)}/avanzar`,
     {
       method: "POST",
-      body: { accion, ...(datos ? { datos } : {}) },
+      body: { accion, ...(hasDatos ? { datos } : {}) },
     },
   );
   return r.tramite;
 }
 
+export function eliminarTramite(tramiteId: string, motivo: string): Promise<unknown> {
+  const qs = new URLSearchParams({ motivo: motivo.trim() || "Eliminado desde la app" });
+  return swiRequest(`/tramites/${encodeURIComponent(tramiteId)}?${qs.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+/** Pago con tarjeta desde el celular de la paciente: envía siempre `"canal": "APP"`. */
 export function pagarConTarjeta(tramiteId: string, tarjeta: DatosTarjeta): Promise<ResultadoPago> {
   return swiRequest<ResultadoPago>(`/tramites/${encodeURIComponent(tramiteId)}/pagos`, {
     method: "POST",
-    body: { metodo: "TARJETA", tarjeta },
+    canal: "APP",
+    body: { metodo: "TARJETA", canal: "APP", tarjeta },
   });
 }
 
@@ -171,13 +189,77 @@ export function marcarPagoEnClinica(tramiteId: string): Promise<ResultadoPago> {
   });
 }
 
-export function registrarInteraccion(
-  tramiteId: string,
-  tipo: string,
-  detalle?: Record<string, unknown>,
+export function guardarPreguntaSeguridad(
+  telefono: string,
+  pregunta: string,
+  respuesta: string,
 ): Promise<unknown> {
+  return swiRequest(`/pacientes/${encodeURIComponent(telefono)}/seguridad`, {
+    method: "PUT",
+    body: { pregunta: pregunta.trim(), respuesta: respuesta.trim() },
+  });
+}
+
+export function verificarPreguntaSeguridad(
+  telefono: string,
+  respuesta: string,
+): Promise<SeguridadVerificacion> {
+  return swiRequest<SeguridadVerificacion>(
+    `/pacientes/${encodeURIComponent(telefono)}/seguridad`,
+    {
+      method: "POST",
+      body: { respuesta: respuesta.trim() },
+    },
+  );
+}
+
+export function enviarEncuesta(input: EncuestaInput): Promise<unknown> {
+  const puntaje = Math.round(input.puntaje);
+  if (puntaje < 1 || puntaje > 5) {
+    return Promise.reject(new SwiError(400, "El puntaje debe estar entre 1 y 5."));
+  }
+  const motivo = input.motivo?.trim();
+  if (puntaje < 3 && !motivo) {
+    return Promise.reject(
+      new SwiError(400, "El motivo es obligatorio cuando el puntaje es menor a 3."),
+    );
+  }
+  return swiRequest("/encuestas", {
+    method: "POST",
+    canal: input.canal ?? APP_CANAL,
+    body: {
+      telefono: input.telefono,
+      puntaje,
+      ...(motivo ? { motivo } : {}),
+      ...(input.tramiteId ? { tramiteId: input.tramiteId } : {}),
+    },
+  });
+}
+
+const ALLOWED_TYPES = new Set<string>(SWI_INTERACCION_TIPOS);
+
+export function registrarInteraccion(params: {
+  tramiteId?: string;
+  telefono?: string;
+  tipo: SwiInteraccionTipo;
+  detalle?: Record<string, unknown>;
+  canal?: Canal;
+}): Promise<unknown> {
+  if (!ALLOWED_TYPES.has(params.tipo)) {
+    return Promise.reject(new SwiError(400, `Tipo de interacción no permitido: ${params.tipo}`));
+  }
+  if (!params.tramiteId && !params.telefono) {
+    return Promise.reject(
+      new SwiError(400, "Se requiere tramiteId o telefono para registrar la interacción."),
+    );
+  }
   return swiRequest("/interacciones", {
     method: "POST",
-    body: { tramiteId, tipo, ...(detalle ? { detalle } : {}) },
+    canal: params.canal ?? APP_CANAL,
+    body: {
+      ...(params.tramiteId ? { tramiteId: params.tramiteId } : { telefono: params.telefono }),
+      tipo: params.tipo,
+      detalle: params.detalle ?? {},
+    },
   });
 }

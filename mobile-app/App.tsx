@@ -37,9 +37,9 @@ function PatientApp() {
   const appStateRef = useRef(AppState.currentState);
 
   const loadContext = useCallback(
-    async (targetPhone: string, silent = false): Promise<Contexto | null> => {
+    async (targetPhone: string, silent = false, registrar = false): Promise<Contexto | null> => {
       try {
-        const data = await getContexto(targetPhone);
+        const data = await getContexto(targetPhone, registrar);
         setCtx(data);
         setNetError(null);
         return data;
@@ -74,7 +74,7 @@ function PatientApp() {
         return;
       }
       setPhone(saved);
-      await loadContext(saved);
+      await loadContext(saved, false, true);
     });
     return () => {
       active = false;
@@ -107,7 +107,7 @@ function PatientApp() {
   async function handleVerified(verifiedPhone: string) {
     await saveSessionPhone(verifiedPhone);
     setPhone(verifiedPhone);
-    await loadContext(verifiedPhone);
+    await loadContext(verifiedPhone, false, true);
   }
 
   async function handleLogout() {

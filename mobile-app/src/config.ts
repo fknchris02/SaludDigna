@@ -1,5 +1,5 @@
 export const SWI_BASE_URL = (
-  process.env.EXPO_PUBLIC_SWI_URL ?? "http://10.35.11.66:3000"
+  process.env.EXPO_PUBLIC_SWI_URL ?? "http://10.35.9.162:3000"
 )
   .trim()
   .replace(/\/+$/, "");

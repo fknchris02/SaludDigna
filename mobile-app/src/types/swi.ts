@@ -21,6 +21,25 @@ export type Accion =
   | "CANCELAR"
   | "RETOMAR";
 
+export type ContactoParentesco =
+  | "HIJO"
+  | "PAREJA"
+  | "MADRE_PADRE"
+  | "HERMANO"
+  | "ABUELO"
+  | "NIETO"
+  | "OTRO";
+
+export type SwiInteraccionTipo =
+  | "CONTEXTO_CONSULTADO"
+  | "CITA_VISUALIZADA"
+  | "CHECK_IN"
+  | "RESULTADOS_ENTREGADOS"
+  | "NOTA_ASESOR"
+  | "MENSAJE_ENVIADO"
+  | "MENSAJE_RECIBIDO"
+  | "TRANSFERENCIA_ASESOR";
+
 export type Horarios = Record<string, [string, string] | null>;
 
 export type Sexo = "H" | "M";
@@ -36,11 +55,17 @@ export type Paciente = {
   fechaNacimiento: string | null;
   sexo: Sexo | null;
   entidadNacimiento: string | null;
+  entidad?: string | null;
   curp: string | null;
   telefonoFijo: string | null;
   contactoNombre: string | null;
   contactoTelefono: string | null;
+  contactoParentesco?: ContactoParentesco | null;
   datosCompletos: boolean;
+  registroCompleto?: boolean;
+  faltanDatos?: string[];
+  preguntaSeguridad?: string | null;
+  adultoMayor?: boolean;
 };
 
 export type Pago = {
@@ -115,6 +140,21 @@ export type Estudio = {
   duracionMin: number;
 };
 
+export type ComprobantePago = {
+  folio?: string | null;
+  referencia?: string | null;
+  autorizacion?: string | null;
+  monto?: number | null;
+  marca?: string | null;
+  ultimos4?: string | null;
+  metodo?: string | null;
+  fecha?: string | null;
+  paciente?: string | null;
+  estudio?: string | null;
+  clinica?: string | null;
+  [key: string]: unknown;
+};
+
 export type ResultadoPago = {
   pago: {
     estado: "APROBADO" | "RECHAZADO" | "PENDIENTE";
@@ -123,8 +163,13 @@ export type ResultadoPago = {
     ultimos4: string | null;
     mensaje: string | null;
     referencia: string;
+    fecha?: string;
+    autorizacion?: string | null;
+    metodo?: string;
   };
+  comprobante?: ComprobantePago | null;
   tramite: Tramite & { pago: Pago };
+  error?: string;
 };
 
 export type RegistroPacienteInput = {
@@ -140,4 +185,18 @@ export type RegistroPacienteInput = {
   telefonoFijo: string;
   contactoNombre: string;
   contactoTelefono: string;
+  contactoParentesco: ContactoParentesco;
+};
+
+export type SeguridadVerificacion = {
+  correcta: boolean;
+  intentosRestantes: number;
+};
+
+export type EncuestaInput = {
+  telefono: string;
+  puntaje: number;
+  motivo?: string;
+  tramiteId?: string;
+  canal?: Canal;
 };

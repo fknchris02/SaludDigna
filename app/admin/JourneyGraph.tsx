@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Ev } from "@/app/_components/Timeline";
 import type { Pago } from "@/app/_components/SwiPagos";
-import { ago, formatDate, formatTime, money, TZ } from "@/lib/format";
+import { ago, formatDate, formatTime, money, moneyPesos, TZ } from "@/lib/format";
 import { CHANNEL_LABEL, EVENT_LABEL, INTENT_LABEL, PENDING_LABEL, STEP_LABEL, STEPS, SWI_EVENT_LABEL } from "@/lib/labels";
 
 export type CaseDetail = {
@@ -16,7 +16,7 @@ export type CaseDetail = {
 export type JourneyStatus = "ACTIVO" | "PAUSADO" | "CONFIRMADO" | "CANCELADO";
 
 // Carriles del mapa: un canal por fila (mismos colores que los chips de canal del resto de la app).
-// CLINICA solo la usan los recorridos que llegan de SWI (recepción, check-in, resultados).
+// CLINICA la usan los recorridos que llegan de SWI / WEB-CLINICA (recepción, check-in, resultados).
 const LANES = ["WEB", "WHATSAPP", "CALL_CENTER", "APP", "CLINICA"] as const;
 export const CHANNEL_VISUAL: Record<string, { dot: string; text: string; hex: string }> = {
   WEB: { dot: "bg-sky-500 shadow-sky-500/30", text: "text-sky-700", hex: "#0ea5e9" },
@@ -50,7 +50,11 @@ type Node = {
 /** Eventos reales del trámite → nodos del mapa. Lo que el sistema no registra no se dibuja. */
 function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
   const nodes: Node[] = [];
-  const by = (e: Ev) => (e.actorId && d.actors[e.actorId] ? `por ${d.actors[e.actorId].nombre}` : undefined);
+  const by = (e: Ev) => {
+    if (e.actorId && d.actors[e.actorId]) return `por ${d.actors[e.actorId].nombre}`;
+    const rec = (e.payload as Record<string, unknown>)?.recepcion;
+    return typeof rec === "string" && rec ? `por ${rec}` : undefined;
+  };
   for (const e of d.timeline) {
     const p = e.payload as Record<string, unknown>;
     const data = (p.data ?? {}) as Record<string, string | number>;
@@ -68,8 +72,8 @@ function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
       const title = to === "DATOS_CONFIRMADOS" ? "Confirmó sus datos" : `${back ? "Cambió" : "Eligió"} ${STEP_LABEL[to].toLowerCase()}`;
       nodes.push({ ...base, kind: "card", title, subtitle: sub, meta: by(e) });
     } else if (e.type === "APPOINTMENT_CONFIRMED")
-      nodes.push({ ...base, kind: "hero", tone: "ok", title: String(data.estudio), subtitle: `${data.clinica} · ${formatDate(String(data.horario))}`, badge: `Folio ${data.folio}`, meta: by(e) });
-    else if (e.type === "CASE_CANCELLED") nodes.push({ ...base, kind: "card", tone: "danger", title: "Trámite cancelado", subtitle: String(data.motivoCancelacion ?? "Sin motivo registrado"), meta: by(e) });
+      nodes.push({ ...base, kind: "hero", tone: "ok", title: String(data.estudio ?? p.estudio ?? "Cita confirmada"), subtitle: `${data.clinica ?? p.clinica ?? ""} · ${data.horario ? formatDate(String(data.horario)) : ""}`.replace(/^\s*·\s*|\s*·\s*$/g, ""), badge: `Folio ${data.folio ?? p.folio ?? ""}`, meta: by(e) });
+    else if (e.type === "CASE_CANCELLED") nodes.push({ ...base, kind: "card", tone: "danger", title: "Trámite cancelado", subtitle: String(data.motivoCancelacion ?? p.motivo ?? "Sin motivo registrado"), meta: by(e) });
     else if (e.type === "INTENT_CLASSIFIED") {
       const intent = String(p.intent);
       const label = intent === "HABLAR_ASESOR" ? "Pidió hablar con un asesor" : intent === "ELEGIR_OPCION" ? "Eligió con sus palabras (IA)" : `Preguntó por ${INTENT_LABEL[intent] ?? intent}`;
@@ -84,7 +88,16 @@ function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
       if (tipo === "CITA_CONFIRMADA")
         nodes.push({ ...base, kind: "hero", tone: "ok", title: c.estudio || "Cita", subtitle: [c.clinica, c.horario && formatDate(c.horario)].filter(Boolean).join(" · "), badge: c.folio ? `Folio ${c.folio}` : "SWI" });
       else nodes.push({ ...base, kind: "card", title: SWI_EVENT_LABEL[tipo] ?? tipo, subtitle: p.texto ? String(p.texto) : undefined, tone: SWI_DANGER.has(tipo) ? "danger" : undefined });
-    }
+    } else if (e.type === "CLINIC_CHECK_IN") nodes.push({ ...base, kind: "card", title: "Llegada a clínica", subtitle: String(p.clinica ?? p.estudio ?? "Check-in registrado"), meta: by(e) });
+    else if (e.type === "CLINIC_APPOINTMENT_BOOKED") nodes.push({ ...base, kind: "card", title: "Cita en mostrador", subtitle: [p.estudio, p.clinica].filter(Boolean).join(" · ") || "Agendada en clínica", meta: by(e) });
+    else if (e.type === "CLINIC_PAYMENT_APPROVED")
+      nodes.push({ ...base, kind: "card", title: "Pago aprobado", subtitle: [typeof p.monto === "number" ? moneyPesos(p.monto) : null, p.ultimos4 ? `•••• ${p.ultimos4}` : null].filter(Boolean).join(" · ") || "Cobro en clínica", meta: by(e) });
+    else if (e.type === "CLINIC_PAYMENT_REJECTED") nodes.push({ ...base, kind: "card", tone: "danger", title: "Pago rechazado", subtitle: String(p.motivo ?? "Tarjeta rechazada"), meta: by(e) });
+    else if (e.type === "CLINIC_PAYMENT_PENDING") nodes.push({ ...base, kind: "pill", tone: "warning", title: "Pagará en clínica", meta: by(e)?.replace("por ", "") });
+    else if (e.type === "CLINIC_RESULTS_DELIVERED") nodes.push({ ...base, kind: "card", title: "Resultados entregados", subtitle: String(p.estudio ?? p.clinica ?? "Entrega en clínica"), meta: by(e) });
+    else if (e.type === "CLINIC_FAMILY_APPOINTMENT") nodes.push({ ...base, kind: "card", title: "Cita para familiar", subtitle: [p.familiarNombre, p.estudio].filter(Boolean).join(" · ") || "Familiar registrado", meta: by(e) });
+    else if (e.type === "CLINIC_CASE_DELETED") nodes.push({ ...base, kind: "card", tone: "danger", title: "Trámite eliminado", subtitle: String(p.motivo ?? "Eliminado en mostrador"), meta: by(e) });
+    else if (e.type === "CLINIC_REPORT_SENT") nodes.push({ ...base, kind: "pill", title: p.accion === "DESCARGADO" ? "PDF consultado" : "Reporte reenviado", meta: by(e)?.replace("por ", "") });
   }
   // Lo que falta: en el carril del último canal. Si está pausado, como el "abortado" del diseño.
   if (status === "ACTIVO" || status === "PAUSADO") {
@@ -326,7 +339,7 @@ function NodeView({ n }: { n: Node }) {
           <span className="text-[10px] font-bold bg-white/20 px-2.5 py-1 rounded-full uppercase tracking-wider">Cita confirmada</span>
         </div>
         <h3 className="text-lg font-bold mt-4 leading-tight">{n.title}</h3>
-        <p className="text-xs text-blue-100 mt-1">{n.subtitle}</p>
+        {n.subtitle && <p className="text-xs text-blue-100 mt-1">{n.subtitle}</p>}
         <div className="flex items-center justify-between pt-3 mt-3 border-t border-white/20 text-[11px]">
           <span className="font-mono font-bold">{n.badge}</span>
           <span className="text-blue-100">{CHANNEL_LABEL[n.channel]} · {n.time}</span>

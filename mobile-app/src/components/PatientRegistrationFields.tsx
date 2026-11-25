@@ -8,7 +8,11 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { normalizarTelefono } from "../lib/constantes";
+import {
+  ETIQUETA_PARENTESCO,
+  OPCIONES_PARENTESCO,
+  normalizarTelefono,
+} from "../lib/constantes";
 import {
   ENTIDADES,
   ETIQUETA_SEXO,
@@ -18,7 +22,7 @@ import {
   validarCurp,
 } from "../lib/curp";
 import { COLORS } from "../theme/tokens";
-import type { Paciente, RegistroPacienteInput, Sexo } from "../types/swi";
+import type { ContactoParentesco, Paciente, RegistroPacienteInput, Sexo } from "../types/swi";
 
 export type RegistroFormValues = {
   curp: string;
@@ -32,6 +36,7 @@ export type RegistroFormValues = {
   email: string;
   contactoNombre: string;
   contactoTelefono: string;
+  contactoParentesco: "" | ContactoParentesco;
 };
 
 export function createInitialRegistro(paciente?: Paciente | null): RegistroFormValues {
@@ -42,11 +47,12 @@ export function createInitialRegistro(paciente?: Paciente | null): RegistroFormV
     segundoApellido: paciente?.segundoApellido ?? "",
     fechaNacimiento: paciente?.fechaNacimiento ? paciente.fechaNacimiento.slice(0, 10) : "",
     sexo: paciente?.sexo ?? "",
-    entidad: paciente?.entidadNacimiento ?? "",
+    entidad: paciente?.entidadNacimiento ?? paciente?.entidad ?? "",
     telefonoFijo: paciente?.telefonoFijo ?? "",
     email: paciente?.email ?? "",
     contactoNombre: paciente?.contactoNombre ?? "",
     contactoTelefono: paciente?.contactoTelefono ?? "",
+    contactoParentesco: paciente?.contactoParentesco ?? "",
   };
 }
 
@@ -75,6 +81,7 @@ export function validateRegistroValues(
   if (!v.telefonoFijo.trim()) faltan.push("teléfono fijo");
   if (!v.email.trim()) faltan.push("correo");
   if (!v.contactoNombre.trim()) faltan.push("nombre del familiar");
+  if (!v.contactoParentesco) faltan.push("parentesco del familiar");
   if (!v.contactoTelefono.trim()) faltan.push("número del familiar");
   if (faltan.length > 0) return { ok: false, error: `Faltan: ${faltan.join(", ")}.` };
 
@@ -116,6 +123,7 @@ export function validateRegistroValues(
       telefonoFijo: fijo,
       contactoNombre: v.contactoNombre.trim(),
       contactoTelefono: famTel,
+      contactoParentesco: v.contactoParentesco as ContactoParentesco,
     },
   };
 }
@@ -130,6 +138,7 @@ export function PatientRegistrationFields({
   disabled?: boolean;
 }) {
   const [showEntidadPicker, setShowEntidadPicker] = useState(false);
+  const [showParentescoPicker, setShowParentescoPicker] = useState(false);
 
   const curpLimpia = value.curp.trim().toUpperCase();
   const curpCheck = curpLimpia.length === 18 ? validarCurp(curpLimpia) : null;
@@ -335,6 +344,22 @@ export function PatientRegistrationFields({
       </View>
 
       <View style={styles.field}>
+        <Text style={styles.label}>Parentesco del familiar</Text>
+        <Pressable
+          disabled={disabled}
+          onPress={() => setShowParentescoPicker(true)}
+          style={[styles.input, styles.pickerTrigger]}
+        >
+          <Text style={value.contactoParentesco ? styles.pickerValue : styles.pickerPlaceholder}>
+            {value.contactoParentesco
+              ? ETIQUETA_PARENTESCO[value.contactoParentesco]
+              : "Elige qué es de la paciente"}
+          </Text>
+          <Text style={styles.chevron}>▾</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.field}>
         <Text style={styles.label}>Teléfono del familiar (10 dígitos)</Text>
         <TextInput
           value={value.contactoTelefono}
@@ -347,6 +372,43 @@ export function PatientRegistrationFields({
           style={[styles.input, styles.mono]}
         />
       </View>
+
+      <Modal
+        visible={showParentescoPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowParentescoPicker(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Parentesco del familiar</Text>
+              <Pressable onPress={() => setShowParentescoPicker(false)}>
+                <Text style={styles.modalClose}>Cerrar</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalList}>
+              {OPCIONES_PARENTESCO.map((opt) => {
+                const selected = value.contactoParentesco === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    onPress={() => {
+                      setField("contactoParentesco", opt.value);
+                      setShowParentescoPicker(false);
+                    }}
+                    style={[styles.optionRow, selected && styles.optionRowSelected]}
+                  >
+                    <Text style={[styles.optionText, selected && styles.optionTextSelected]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showEntidadPicker}

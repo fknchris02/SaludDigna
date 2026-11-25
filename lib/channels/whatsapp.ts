@@ -13,6 +13,7 @@ import {
   registerByWhatsApp,
   verifyByBirthdate,
 } from "@/lib/engine/identity";
+import { emitSwiInteractionAsync } from "@/lib/server/swiSync";
 
 export type Reply = { text: string; options?: string[] };
 
@@ -39,6 +40,9 @@ export async function handleInboundMessage(input: { from: string; text: string; 
   let identity = await getOrCreateChannelIdentity("WHATSAPP", telefono);
   const state = (identity.convState ?? {}) as ConvState;
 
+  const safeInText =
+    state.awaiting === "BIRTHDATE" ? "[fecha de nacimiento]" : state.awaiting === "NAME" ? "[nombre]" : text;
+
   try {
     await recordEvent({
       type: EventType.MESSAGE_IN,
@@ -49,13 +53,19 @@ export async function handleInboundMessage(input: { from: string; text: string; 
       // No guardar la fecha de nacimiento en la bitácora.
       payload: {
         identityId: identity.id,
-        text: state.awaiting === "BIRTHDATE" ? "[fecha de nacimiento]" : state.awaiting === "NAME" ? "[nombre]" : text,
+        text: safeInText,
       },
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return { replies: [], duplicate: true };
     throw err;
   }
+
+  emitSwiInteractionAsync({
+    telefono,
+    tipo: "MENSAJE_RECIBIDO",
+    detalle: { texto: safeInText },
+  });
 
   let result: Result;
   try {
@@ -75,6 +85,11 @@ export async function handleInboundMessage(input: { from: string; text: string; 
       patientId: identity.patientId,
       caseId,
       payload: { identityId: identity.id, text: r.text, options: r.options ?? [] },
+    });
+    emitSwiInteractionAsync({
+      telefono,
+      tipo: "MENSAJE_ENVIADO",
+      detalle: { texto: r.text },
     });
   }
   return { replies, duplicate: false };
@@ -271,6 +286,13 @@ async function caseFlow(
       payload: { intent, source },
     });
     const answered = answerIntent(intent, active);
+    if (intent === "HABLAR_ASESOR") {
+      emitSwiInteractionAsync({
+        telefono: patient.telefono,
+        tipo: "TRANSFERENCIA_ASESOR",
+        detalle: { motivo: text || "Solicitó hablar con un asesor" },
+      });
+    }
     if (answered) {
       if (answered.next) return { replies: answered.replies, next: answered.next, caseId: active?.id ?? null };
       return withPrompt(answered.replies, active, patient);

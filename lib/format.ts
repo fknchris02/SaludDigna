@@ -33,3 +33,4 @@ export function ago(iso: string | Date, now = Date.now()) {
 }
 
 export const money = (centavos: number) => (centavos / 100).toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+export const moneyPesos = (pesos: number) => pesos.toLocaleString("es-MX", { style: "currency", currency: "MXN" });

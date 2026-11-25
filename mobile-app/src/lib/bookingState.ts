@@ -1,5 +1,5 @@
 import type { Contexto, Paciente, Tramite } from "../types/swi";
-import { ESTADOS_EN_CURSO } from "./constantes";
+import { ESTADOS_EN_CURSO, esRegistroCompleto } from "./constantes";
 import { fechaLocal } from "./horarios";
 
 export type BookingView = "ESTUDIO" | "CLINICA" | "HORARIO" | "DATOS" | "CITA" | "LISTO";
@@ -18,7 +18,7 @@ export const WIZARD_STEPS: { view: BookingView | "IDENTIDAD"; label: string }[] 
  */
 export function viewForTramite(
   t: Tramite | null,
-  paciente: Pick<Paciente, "datosCompletos"> | null,
+  paciente: Pick<Paciente, "datosCompletos" | "registroCompleto" | "faltanDatos"> | null,
 ): BookingView {
   if (!t || t.estado === "CANCELADO") return "ESTUDIO";
   if (t.estado === "AGENDADO" || t.estado === "CONFIRMADO") return "LISTO";
@@ -28,7 +28,7 @@ export function viewForTramite(
   if (!t.fechaCita) return "HORARIO";
 
   if (t.paso === "CONFIRMAR" || t.estado === "DATOS_CAPTURADOS") {
-    return paciente?.datosCompletos === false ? "DATOS" : "CITA";
+    return !esRegistroCompleto(paciente) ? "DATOS" : "CITA";
   }
   return "DATOS";
 }

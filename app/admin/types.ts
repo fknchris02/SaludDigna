@@ -14,7 +14,7 @@ export type Journey = {
   updatedAt: string;
 };
 export type Overview = {
-  kpis: { open: number; paused: number; confirmed24h: number; switches24h: number; conflicts24h: number; multichannelPct: number };
+  kpis: { open: number; paused: number; confirmed24h: number; switches24h: number; conflicts24h: number; clinicEvents24h?: number; multichannelPct: number };
   steps: Record<string, number>;
   transitions: Record<string, Record<string, number>>;
   channels: string[];

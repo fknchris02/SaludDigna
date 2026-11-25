@@ -342,11 +342,12 @@ export default function AdminDashboard() {
               </header>
 
               {/* Indicadores */}
-              <section className="px-5 md:px-8 py-4 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6 border-b border-slate-100/60" aria-label="Indicadores">
+              <section className="px-5 md:px-8 py-4 grid gap-3 grid-cols-2 md:grid-cols-4 xl:grid-cols-7 border-b border-slate-100/60" aria-label="Indicadores">
                 <Kpi label="Trámites abiertos" value={k.open} />
                 <Kpi label="Pausados (+10 min)" value={k.paused} hint="Ver candidatos a recuperar →" tone="warning"
                   onClick={() => { setFilter("PAUSADO"); setLimit(PAGE); document.getElementById("recorridos")?.scrollIntoView({ behavior: "smooth" }); }} />
                 <Kpi label="Citas confirmadas · 24 h" value={k.confirmed24h} />
+                <Kpi label="Eventos Clínica · 24 h" value={k.clinicEvents24h ?? 0} hint="WEB-CLINICA en vivo" />
                 <Kpi label="Cambios de canal · 24 h" value={k.switches24h} />
                 <Kpi label="Recorridos multicanal" value={`${k.multichannelPct}%`} hint="Pasaron por 2+ canales" />
                 <Kpi label="Conflictos detectados · 24 h" value={k.conflicts24h} hint="Ediciones simultáneas bloqueadas" />
@@ -397,26 +398,30 @@ export default function AdminDashboard() {
 function JourneySidebar({ j, d }: { j: Journey; d: CaseDetail }) {
   const st = STATUS[j.status];
   const switches = d.timeline.filter((e) => e.type === "CASE_RESUMED").length || Math.max(0, j.channels.length - 1);
-  // Quién intervino: personal por nombre; autoservicio por canal.
+  // Quién intervino: personal por nombre; recepción de clínica; autoservicio por canal.
   const people = new Map<string, { label: string; sub: string; initials: string; channel: string; n: number }>();
   for (const e of d.timeline) {
     if (e.type === "ADVISOR_OPENED_CASE" && e.payload.role === "ADMIN") continue; // monitoreo, no atención
     const staff = e.actorId ? d.actors[e.actorId] : null;
     const swiCh = e.type === "SWI_EVENTO" ? String(e.payload.canal ?? "WEB") : null; // canal real del evento de SWI
-    const key = staff ? `staff:${e.actorId}` : `ch:${swiCh ?? e.channel}`;
+    const recepcion = e.channel === "CLINICA" && typeof e.payload.recepcion === "string" && e.payload.recepcion ? e.payload.recepcion : null;
+    const clinicaSub = typeof e.payload.clinica === "string" && e.payload.clinica ? `Recepción · ${e.payload.clinica.replace(/^Salud Digna\s+/i, "")}` : "Recepción · Clínica";
+    const key = staff ? `staff:${e.actorId}` : recepcion ? `rec:${recepcion}` : `ch:${swiCh ?? e.channel}`;
     const row =
       people.get(key) ??
       (swiCh
         ? { label: swiCh === "CLINICA" ? "Clínica (recepción)" : CHANNEL_LABEL[swiCh] ?? swiCh, sub: "Registrado por SWI", initials: (CHANNEL_LABEL[swiCh] ?? swiCh).slice(0, 2).toUpperCase(), channel: swiCh, n: 0 }
         : staff
         ? { label: staff.nombre, sub: staff.role === "ADMIN" ? "Administración" : "Asesor · Call Center", initials: staff.nombre.split(" ").map((w) => w[0]).join("").slice(0, 2), channel: "CALL_CENTER", n: 0 }
-        : {
-            label: e.channel === "WHATSAPP" ? "Asistente de WhatsApp" : e.channel === "CALL_CENTER" ? "Call Center" : `${CHANNEL_LABEL[e.channel]} (autoservicio)`,
-            sub: e.channel === "WHATSAPP" ? "Bot de citas" : e.channel === "CALL_CENTER" ? "Asesor no registrado" : "El paciente por su cuenta",
-            initials: e.channel === "WHATSAPP" ? "WA" : CHANNEL_LABEL[e.channel].slice(0, 2).toUpperCase(),
-            channel: e.channel,
-            n: 0,
-          });
+        : recepcion
+          ? { label: recepcion, sub: clinicaSub, initials: recepcion.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase(), channel: "CLINICA", n: 0 }
+          : {
+              label: e.channel === "WHATSAPP" ? "Asistente de WhatsApp" : e.channel === "CALL_CENTER" ? "Call Center" : e.channel === "CLINICA" ? "Recepción Clínica" : `${CHANNEL_LABEL[e.channel] ?? e.channel} (autoservicio)`,
+              sub: e.channel === "WHATSAPP" ? "Bot de citas" : e.channel === "CALL_CENTER" ? "Asesor no registrado" : e.channel === "CLINICA" ? clinicaSub : "El paciente por su cuenta",
+              initials: e.channel === "WHATSAPP" ? "WA" : e.channel === "CLINICA" ? "CL" : (CHANNEL_LABEL[e.channel] ?? e.channel).slice(0, 2).toUpperCase(),
+              channel: e.channel,
+              n: 0,
+            });
     row.n++;
     people.set(key, row);
   }
@@ -454,7 +459,7 @@ function JourneySidebar({ j, d }: { j: Journey; d: CaseDetail }) {
             <span key={i} className={`rounded-full border-2 border-white ${i === j.channels.length - 1 ? "w-3.5 h-3.5" : "w-2.5 h-2.5"}`} style={{ background: CHANNEL_VISUAL[c]?.hex }} />
           ))}
         </div>
-        <h3 className="text-base font-bold leading-tight">{j.channels.map((c) => CHANNEL_LABEL[c]).join(" → ")}</h3>
+        <h3 className="text-base font-bold leading-tight">{j.channels.map((c) => CHANNEL_LABEL[c] ?? c).join(" → ")}</h3>
         <p className="text-xs text-blue-100">
           {d.timeline.length} eventos registrados · {switches} cambio{switches === 1 ? "" : "s"} de canal
         </p>
@@ -540,4 +545,3 @@ function StepDots({ step }: { step: string }) {
     </span>
   );
 }
-

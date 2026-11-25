@@ -121,11 +121,11 @@ describe("horarios de clínica", () => {
   });
 });
 
-describe("cliente SWI (http://10.35.11.66:3000)", () => {
-  it("arma URL con /api y canal=APP apuntando por defecto a 10.35.11.66:3000", () => {
-    expect(buildSwiUrl("/estudios")).toBe("http://10.35.11.66:3000/api/estudios?canal=APP");
+describe("cliente SWI (http://10.35.9.162:3000)", () => {
+  it("arma URL con /api y canal=APP apuntando por defecto a 10.35.9.162:3000", () => {
+    expect(buildSwiUrl("/estudios")).toBe("http://10.35.9.162:3000/api/estudios?canal=APP");
     expect(buildSwiUrl("/pacientes/6670000001/contexto?registrar=1")).toBe(
-      "http://10.35.11.66:3000/api/pacientes/6670000001/contexto?registrar=1&canal=APP",
+      "http://10.35.9.162:3000/api/pacientes/6670000001/contexto?registrar=1&canal=APP",
     );
   });
 
@@ -147,7 +147,7 @@ describe("cliente SWI (http://10.35.11.66:3000)", () => {
     expect(res.tramite.id).toBe("tr-9");
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://10.35.11.66:3000/api/tramites?canal=APP");
+    expect(url).toBe("http://10.35.9.162:3000/api/tramites?canal=APP");
     expect((init?.headers as Record<string, string>)["x-api-key"]).toBe("demo-canales-2026");
     expect(JSON.parse(String(init?.body))).toEqual({
       canal: "APP",

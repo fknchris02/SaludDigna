@@ -13,7 +13,7 @@
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSExceptionDomains": {
-            "10.35.11.66": {
+            "10.35.9.162": {
               "NSExceptionAllowsInsecureHTTPLoads": true,
               "NSIncludesSubdomains": false
             }
