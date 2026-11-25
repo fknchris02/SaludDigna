@@ -44,3 +44,6 @@ next-env.d.ts
 # copias de conflicto de iCloud ("archivo 2.tsx")
 * 2.*
 * 2/
+
+# Maquetas y capturas de diseño: solo locales
+/design/

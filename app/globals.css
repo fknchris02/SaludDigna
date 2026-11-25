@@ -16,6 +16,10 @@
   --color-sd-blue: #0066ff;
   --color-sd-green: #00875a;
   --color-sd-bg: #f3f6fb;
+  --color-sd-green: #00875a;
+  --color-sd-green-dark: #006644;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-card-hover: 0 8px 24px rgba(15, 23, 42, 0.06);
   --shadow-soft-card: 0 10px 30px -5px rgba(0, 50, 120, 0.06), 0 4px 10px -2px rgba(0, 0, 0, 0.03);
   --shadow-dark-panel: 0 25px 50px -12px rgba(15, 23, 42, 0.45);
 }
@@ -48,4 +52,28 @@ body {
   .omni-node {
     transition: none !important;
   }
+}
+
+/* ───── Dashboard del admin: animaciones (se apagan con "reducir movimiento") ───── */
+@property --sweep {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 100%;
+}
+@keyframes dash-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes dash-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes dash-pop { from { opacity: 0; transform: scale(0.85); } to { opacity: 1; transform: none; } }
+@keyframes dash-sweep { from { --sweep: 0%; } to { --sweep: 100%; } }
+@keyframes dash-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+.dash-rise { animation: dash-rise 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+.dash-pop { animation: dash-pop 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); }
+/* Barras: crecen al montar y se deslizan cuando cambia el dato en vivo. */
+.dash-bar { transform-origin: left; animation: dash-grow 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; animation-delay: var(--d, 0ms); transition: width 0.6s ease; }
+.dash-donut { mask: conic-gradient(#000 var(--sweep), transparent 0); animation: dash-sweep 1.2s cubic-bezier(0.3, 0.7, 0.2, 1) both 0.2s; transition: background 0.6s ease; }
+.dash-icon { transition: transform 0.3s ease; }
+.group:hover .dash-icon { transform: scale(1.08) rotate(-4deg); }
+.dash-float { animation: dash-float 3s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .dash-rise, .dash-pop, .dash-bar, .dash-donut, .dash-float { animation: none; }
+  .dash-bar, .dash-icon { transition: none; }
 }

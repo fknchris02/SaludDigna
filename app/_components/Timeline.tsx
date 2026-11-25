@@ -12,7 +12,7 @@ export const CHANNEL_STYLE: Record<string, string> = {
   CLINICA: "bg-rose-100 text-rose-800",
 };
 
-export function TimelineItem({ e }: { e: Ev }) {
+export function TimelineItem({ e, className = "", style }: { e: Ev; className?: string; style?: React.CSSProperties }) {
   const p = e.payload;
   let detail: React.ReactNode = null;
   if (e.type === "MESSAGE_IN" || e.type === "MESSAGE_OUT") detail = <span className="whitespace-pre-line">{String(p.text ?? "")}</span>;
@@ -30,7 +30,7 @@ export function TimelineItem({ e }: { e: Ev }) {
   const label = swi ? (SWI_EVENT_LABEL[String(p.tipoEvento)] ?? String(p.tipoEvento)) : (EVENT_LABEL[e.type] ?? e.type);
 
   return (
-    <li className="text-sm border-l-2 border-slate-200 pl-3">
+    <li className={`text-sm border-l-2 border-slate-200 pl-3 ${className}`} style={style}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-[11px] rounded px-1.5 py-0.5 ${CHANNEL_STYLE[channel] ?? CHANNEL_STYLE.SYSTEM}`}>{CHANNEL_LABEL[channel] ?? channel}</span>
         <span className="font-medium">{label}</span>

@@ -1,7 +1,8 @@
 // Formato compartido por servidor y navegador (sin dependencias de BD).
-export const TZ = "America/Mazatlan"; // Sinaloa
+export const TZ = "America/Mexico_City"; // hora del centro, igual que la app móvil (sin horario de verano desde 2022)
+const OFFSET = "-06:00"; // desfase fijo de TZ, para armar los horarios
 
-/** Próximos 2 días hábiles (lun-sáb) a las 08, 10 y 12 h de Sinaloa. shortcut: horarios fijos; usar disponibilidad real de la clínica. */
+/** Próximos 2 días hábiles (lun-sáb) a las 08, 10 y 12 h (hora del centro). shortcut: horarios fijos; usar disponibilidad real de la clínica. */
 export function slots(now = new Date()): string[] {
   const out: string[] = [];
   for (let i = 1; out.length < 6 && i < 10; i++) {
@@ -9,7 +10,7 @@ export function slots(now = new Date()): string[] {
     const parts = new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", weekday: "short" }).formatToParts(day);
     const get = (t: string) => parts.find((p) => p.type === t)!.value;
     if (get("weekday") === "Sun") continue;
-    for (const h of ["08", "10", "12"]) out.push(`${get("year")}-${get("month")}-${get("day")}T${h}:00:00-07:00`);
+    for (const h of ["08", "10", "12"]) out.push(`${get("year")}-${get("month")}-${get("day")}T${h}:00:00${OFFSET}`);
   }
   return out;
 }
