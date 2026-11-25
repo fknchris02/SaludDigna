@@ -64,7 +64,7 @@ Quién recibe qué en tiempo real:
 | Panel de admin | SSE | Todos los eventos, de las dos fuentes |
 | Consola del asesor | SSE filtrado por paciente | Los eventos del paciente que validó, **incluidos los de SWI** (se ligan por teléfono) |
 | Web y App propias | SSE filtrado por trámite o paciente en sesión | Los cambios de su propio trámite |
-| WhatsApp simulado | **Sin SSE.** Se pone al día al abrir el chat o volver a la pestaña (`catchUp`) | Avisos de cita confirmada o trámite cancelado en otros canales |
+| WhatsApp simulado | **Sin SSE.** Se pone al día al abrir el chat o volver a la pestaña (`catchUp`) | Avisos de cita confirmada o trámite cancelado en otros canales, y de citas agendadas o confirmadas en SWI |
 
 ---
 
@@ -201,16 +201,19 @@ También: 1,148 pacientes, 1,174 trámites (5 eliminados) y 1,086 pagos. Llegan 
 
 | Vista | Qué ve de SWI |
 |---|---|
-| **Panel de admin** | Todo: trámites, recorridos, indicadores y eventos en vivo |
-| **Consola del asesor** | Los eventos de SWI aparecen en la bitácora del paciente y llegan en vivo, porque se ligan por teléfono a la misma paciente |
-| **Web, App y WhatsApp propios** | Nada de SWI. Solo muestran trámites propios, porque los de SWI tienen otro dueño |
+| **Panel de admin** | Todo: trámites, recorridos, indicadores, eventos en vivo y pagos (en el dashboard y en cada recorrido) |
+| **Consola del asesor** | Los eventos de SWI en la bitácora de la paciente y en el resumen con IA, y sus pagos. Llegan en vivo porque se ligan por teléfono |
+| **Web y App propias** | Sus trámites de SWI en «Mis citas»: agendados o confirmados como próximos, cotizaciones como «a medias» y cancelados tachados. Solo se muestran; SWI es su dueño |
+| **WhatsApp simulado** | Un aviso cuando SWI agenda o confirma una cita de la paciente |
 
-**Lo que no cruza (todavía):**
+**Cómo cruza cada cosa:**
 
-- Los trámites de SWI no aparecen en la Web, App ni WhatsApp propios, y la puesta al día de WhatsApp no avisa de citas confirmadas en SWI.
-- El resumen con IA del asesor solo usa los eventos propios; ignora los de SWI.
-- Los pagos (`SwiPago`) se guardan, pero ningún panel los muestra todavía.
-- 20 pacientes de SWI llegaron sin fecha de nacimiento. El asesor no puede validarlas con 2 datos hasta que SWI la mande.
+- **«Mis citas».** `GET /api/patient/appointments` devuelve también `swi`: los trámites de SWI de la paciente con su folio visible (`SD-` + los últimos 6 caracteres del id; los de WhatsApp traen además `VT-…`), estudio, clínica, fecha en hora del centro y canal de origen. Se actualizan en vivo con cada evento de SWI.
+- **Aviso por WhatsApp.** Se dispara solo al **insertar** un evento `CITA_AGENDADA` o `CITA_CONFIRMADA`, nunca en el reenvío de un id que ya existía. Va uno por trámite, así agendada y luego confirmada no se repiten, y solo si el evento tiene menos de 24 h: si SWI reenvía su carga histórica, no llega un aviso por cada cita vieja. El texto sale del TRAMITE: estudio, clínica, fecha y folio.
+- **Resumen con IA.** Incluye los eventos de SWI ordenados por fecha, con su etiqueta y su canal, por ejemplo «Cita agendada (Call Center)». A la IA no le llega el texto de los eventos que pueden traer el nombre de un familiar o los dígitos de quien llamó.
+- **Pagos.** Solo `APROBADO` cuenta como cobrado; `PENDIENTE` significa que pagará en clínica y `RECHAZADO` es un intento fallido. Se muestra monto, método, estado, marca •••• últimos 4, referencia, canal y fecha.
+- **`CONTEXTO_CONSULTADO`.** Es interno de SWI: se guarda, pero no va a la bitácora, al mapa ni al resumen.
+- **Prospectos sin fecha de nacimiento.** Son cotizaciones abandonadas de personas que solo dejaron su celular. El asesor las ve marcadas como «Prospecto» y las valida con los últimos 4 dígitos del celular más el folio o el estudio de su cotización. Después captura su nombre y su fecha de nacimiento en esa llamada (evento `PATIENT_UPDATED`). Si la persona se registra en SWI, llega su PACIENTE actualizado con el mismo id y lo completa.
 
 ---
 

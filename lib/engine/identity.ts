@@ -1,6 +1,8 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import type { Channel } from "@prisma/client";
+import { normalize } from "@/lib/ai/intent";
 import { db } from "@/lib/db";
+import { swiFolio } from "@/lib/labels";
 import { EngineError } from "./case";
 import { appendEvent, EventType, publish, recordEvent } from "./events";
 
@@ -219,6 +221,7 @@ export async function searchPatients(q: string) {
     nombre: maskName(p.nombre),
     telefono: maskPhone(p.telefono),
     tramitePendiente: p.cases.some((c) => c.step !== "CITA_CONFIRMADA" && c.step !== "CANCELADO"),
+    sinFechaNac: !p.fechaNac, // prospecto (p. ej. cotización abandonada en SWI): se valida con celular + cotización
   }));
 }
 
@@ -242,21 +245,47 @@ export async function isVerifiedByStaff(staffId: string, patientId: string) {
   return ev ? new Date(ev.createdAt.getTime() + STAFF_VERIFICATION_TTL_MS) : null;
 }
 
-/** El asesor confirma 2 datos que dicta el paciente: fecha de nacimiento y últimos 4 dígitos del teléfono. */
-export async function verifyByStaff(staffId: string, patientId: string, input: { fechaNac: string; last4: string }) {
+/**
+ * El asesor confirma 2 datos que dicta el paciente: últimos 4 dígitos del teléfono y fecha de nacimiento.
+ * Un prospecto sin fecha (solo dejó su celular en una cotización de SWI) se valida con su cotización:
+ * folio (SD-… o VT-…) o el estudio que cotizó.
+ */
+export async function verifyByStaff(staffId: string, patientId: string, input: { fechaNac?: string; last4: string; referencia?: string }) {
   const patient = await db.patient.findUnique({ where: { id: patientId } });
   if (!patient) throw new EngineError("NOT_FOUND", "Paciente no encontrado");
   const fails = await db.event.count({
     where: { type: EventType.OTP_FAILED, actorId: staffId, patientId, createdAt: { gt: new Date(Date.now() - OTP_WINDOW_MS) } },
   });
   if (fails >= OTP_MAX_ATTEMPTS) throw new EngineError("IDENTITY_REQUIRED", "Demasiados intentos; espera 10 minutos o valida por otro medio");
-  const ok = !!patient.fechaNac && patient.fechaNac.toISOString().slice(0, 10) === input.fechaNac && patient.telefono.endsWith(input.last4);
+  const phoneOk = patient.telefono.endsWith(input.last4);
+  const ok = patient.fechaNac
+    ? phoneOk && patient.fechaNac.toISOString().slice(0, 10) === input.fechaNac
+    : phoneOk && !!input.referencia && (await matchesQuote(patientId, input.referencia));
   await recordEvent({
     type: ok ? EventType.IDENTITY_VERIFIED : EventType.OTP_FAILED,
     channel: "CALL_CENTER",
     patientId,
     actorId: staffId,
-    payload: { method: "ASESOR_2_DATOS" },
+    payload: { method: patient.fechaNac ? "ASESOR_2_DATOS" : "ASESOR_PROSPECTO" },
   });
   return ok;
+}
+
+/** ¿La referencia que dicta el prospecto es el folio o el estudio de una de sus cotizaciones de SWI? */
+export async function matchesQuote(patientId: string, referencia: string) {
+  const ref = normalize(referencia).replace(/\s+/g, " ");
+  if (ref.length < 4) return false;
+  const quotes = await db.swiTramite.findMany({ where: { patientId }, select: { id: true, folioExterno: true, study: { select: { nombre: true } } } });
+  return quotes.some((t) =>
+    [swiFolio(t.id), t.folioExterno].some((f) => f && normalize(f) === ref) || (!!t.study && normalize(t.study.nombre).includes(ref)),
+  );
+}
+
+/** El asesor captura nombre y fecha de nacimiento de un prospecto ya validado. No pisa datos que ya existen. */
+export async function captureProspectData(staffId: string, patientId: string, input: { nombre: string; fechaNac: string }) {
+  const patient = await db.patient.findUnique({ where: { id: patientId } });
+  if (!patient) throw new EngineError("NOT_FOUND", "Paciente no encontrado");
+  if (patient.fechaNac) throw new EngineError("INVALID_TRANSITION", "Este paciente ya tiene sus datos registrados");
+  await db.patient.update({ where: { id: patientId }, data: { nombre: input.nombre, fechaNac: new Date(input.fechaNac) } });
+  await recordEvent({ type: EventType.PATIENT_UPDATED, channel: "CALL_CENTER", patientId, actorId: staffId, payload: { campos: ["nombre", "fechaNac"] } });
 }

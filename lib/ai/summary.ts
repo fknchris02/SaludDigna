@@ -3,7 +3,20 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { AI_MODEL, getAi, redact } from "./client";
 import { ago, formatDate } from "@/lib/format";
-import { CHANNEL_LABEL, INTENT_LABEL, PENDING_LABEL } from "@/lib/labels";
+import { CHANNEL_LABEL, INTENT_LABEL, PENDING_LABEL, SWI_EVENT_LABEL } from "@/lib/labels";
+import { SWI_INTERNAL } from "@/lib/integrations/swi";
+
+// Eventos de SWI (sus cinco canales): su canal real va en el payload. Los internos (CONTEXTO_CONSULTADO) se omiten.
+type SwiPayload = { tipoEvento?: string; canal?: string; texto?: string };
+const isSwi = (e: Event) => e.type === "SWI_EVENTO" && !SWI_INTERNAL.has(String((e.payload as SwiPayload).tipoEvento));
+const channelOf = (e: Event) => (e.type === "SWI_EVENTO" ? String((e.payload as SwiPayload).canal ?? e.channel) : e.channel);
+/** «Cita agendada (Call Center)» */
+const swiLabel = (e: Event) => {
+  const p = e.payload as SwiPayload;
+  return `${SWI_EVENT_LABEL[p.tipoEvento ?? ""] ?? p.tipoEvento} (${CHANNEL_LABEL[channelOf(e)] ?? channelOf(e)})`;
+};
+// Su texto puede traer el nombre de un familiar o los dígitos de quien llamó: al LLM solo va la etiqueta.
+const SWI_SIN_DETALLE = new Set(["CITA_PARA_FAMILIAR", "LLAMADA_RECIBIDA", "PACIENTE_REGISTRADO"]);
 
 /**
  * Resumen para el asesor: lo que necesita saber en 5 segundos para no pedirle nada al paciente.
@@ -11,8 +24,8 @@ import { CHANNEL_LABEL, INTENT_LABEL, PENDING_LABEL } from "@/lib/labels";
  */
 export function summarizeJourney(events: Event[], active: Case | null, now = Date.now()): { lines: string[]; source: "rules" | "llm" } {
   const lines: string[] = [];
-  const journey = events.filter((e) => ["CASE_CREATED", "STEP_COMPLETED", "CASE_RESUMED", "MESSAGE_IN", "APPOINTMENT_CONFIRMED"].includes(e.type));
-  const channels = journey.map((e) => e.channel).filter((c, i, a) => c !== "SYSTEM" && c !== a[i - 1]);
+  const journey = events.filter((e) => ["CASE_CREATED", "STEP_COMPLETED", "CASE_RESUMED", "MESSAGE_IN", "APPOINTMENT_CONFIRMED"].includes(e.type) || isSwi(e));
+  const channels = journey.map(channelOf).filter((c, i, a) => c !== "SYSTEM" && c !== a[i - 1]);
   if (channels.length) lines.push(`Recorrido: ${channels.map((c) => CHANNEL_LABEL[c]).join(" → ")}.`);
 
   if (active) {
@@ -30,6 +43,9 @@ export function summarizeJourney(events: Event[], active: Case | null, now = Dat
     );
   }
 
+  const swi = events.filter(isSwi);
+  if (swi.length) lines.push(`En SWI: ${swi.slice(-3).map(swiLabel).join("; ")}.`);
+
   const intents = [...new Set(events.filter((e) => e.type === "INTENT_CLASSIFIED").map((e) => (e.payload as { intent: string }).intent))];
   const asked = intents.filter((i) => i !== "HABLAR_ASESOR" && i !== "ELEGIR_OPCION").map((i) => INTENT_LABEL[i]).filter(Boolean);
   if (asked.length) lines.push(`Preguntó por: ${asked.join(", ")}.`);
@@ -37,7 +53,7 @@ export function summarizeJourney(events: Event[], active: Case | null, now = Dat
   if (wantsAdvisor) lines.push(`Pidió hablar con un asesor por ${CHANNEL_LABEL[wantsAdvisor.channel]} ${ago(wantsAdvisor.createdAt, now)}.`);
 
   const last = journey.at(-1);
-  if (last) lines.push(`Último contacto: ${CHANNEL_LABEL[last.channel]}, ${ago(last.createdAt, now)}.`);
+  if (last) lines.push(`Último contacto: ${CHANNEL_LABEL[channelOf(last)] ?? channelOf(last)}, ${ago(last.createdAt, now)}.`);
   return { lines, source: "rules" };
 }
 
@@ -52,7 +68,7 @@ const nextStep = (step: string) => ORDER[ORDER.indexOf(step) + 1] ?? "";
 const AiSummary = z.object({ lines: z.array(z.string()).min(1).max(5) });
 
 const SUMMARY_SYSTEM = `Eres el copiloto de un asesor de Call Center de Salud Digna (laboratorio clínico e imagenología en México).
-Recibes el historial de un paciente en distintos canales (Web, WhatsApp, App, Call Center) y su trámite abierto.
+Recibes el historial de un paciente en distintos canales (Web, WhatsApp, App, Call Center y Clínica), incluidos los eventos del sistema SWI, y su trámite abierto.
 Escribe de 3 a 5 líneas cortas en español para que el asesor atienda SIN pedirle al paciente que repita nada:
 qué quiere, en qué paso va y por qué canales pasó, qué falta, qué dudas o preocupaciones mostró, y la siguiente acción sugerida.
 Usa solo lo que está en el historial; no inventes datos. Sin saludos ni markdown.`;
@@ -105,6 +121,11 @@ export function journeyFacts(events: Event[], active: Case | null, now = Date.no
     else if (e.type === "INTENT_CLASSIFIED") lines.push(`${when} · ${ch} · intención detectada: ${String(p.intent)}`);
     else if (e.type === "CASE_CREATED") lines.push(`${when} · ${ch} · inició un trámite`);
     else if (e.type === "CONFLICT_DETECTED") lines.push(`${when} · ${ch} · edición simultánea bloqueada`);
+    else if (isSwi(e)) {
+      const sw = e.payload as SwiPayload;
+      const detail = sw.texto && !SWI_SIN_DETALLE.has(sw.tipoEvento ?? "") ? `: ${redact(sw.texto).slice(0, 160)}` : "";
+      lines.push(`${when} · SWI · ${swiLabel(e)}${detail}`);
+    }
   }
   let tramite = "Sin trámite abierto.";
   if (active) {

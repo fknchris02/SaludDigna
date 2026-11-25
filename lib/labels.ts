@@ -38,6 +38,7 @@ export const EVENT_LABEL: Record<string, string> = {
   APPOINTMENT_CONFIRMED: "Cita confirmada",
   CASE_CANCELLED: "Trámite cancelado",
   CONFLICT_DETECTED: "Conflicto entre canales",
+  PATIENT_UPDATED: "Datos del paciente capturados",
 };
 
 export const INTENT_LABEL: Record<string, string> = {
@@ -57,6 +58,8 @@ export const METHOD_LABEL: Record<string, string> = {
 
 /** Los recorridos que vienen de SWI llevan este prefijo en el tablero del admin (sus ids no son trámites nuestros). */
 export const SWI_PREFIX = "swi:";
+/** Folio que ve el paciente en un trámite de SWI: "SD-" + los últimos 6 caracteres del id. */
+export const swiFolio = (id: string) => `SD-${id.slice(-6).toUpperCase()}`;
 
 /** Eventos que manda la app SWI (POST /api/integraciones/swi); los desconocidos se muestran con su clave. */
 export const SWI_EVENT_LABEL: Record<string, string> = {

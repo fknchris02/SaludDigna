@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SwiPagos } from "@/app/_components/SwiPagos";
 import { TimelineItem, type Ev } from "@/app/_components/Timeline";
 import type { AdminStats } from "@/lib/admin-stats";
-import { ago, formatTime, TZ } from "@/lib/format";
+import { ago, formatTime, money, TZ } from "@/lib/format";
 import { CHANNEL_LABEL, EVENT_LABEL, STEP_LABEL, STEPS, SWI_PREFIX } from "@/lib/labels";
 import { CHANNEL_VISUAL } from "./JourneyGraph";
 import type { Journey, Overview } from "./types";
@@ -323,6 +324,21 @@ export function Dashboard({ me, data, stats, feed, live, onOpen, onShowPaused }:
             </dl>
           </Card>
         </div>
+        <Card delay={920} title="Pagos de SWI" subtitle="Solo «Pagado» cuenta como cobrado; «Pagará en clínica» se cobra al llegar" className="xl:col-span-3">
+          {!stats ? <p className="text-sm text-slate-400">Cargando…</p> : (
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+              <dl className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 gap-3">
+                <Stat delay={960} label={`Cobrado · ${fmt(stats.payments.approved.count)} pagos aprobados`} value={money(Math.round(stats.payments.approved.total * 100))} />
+                <Stat delay={1020} label={`Pagará en clínica · ${fmt(stats.payments.pending.count)} citas`} value={money(Math.round(stats.payments.pending.total * 100))} />
+                <Stat delay={1080} label="Intentos rechazados" value={<CountUp value={stats.payments.rejected.count} />} />
+              </dl>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-500 mb-1">Últimos pagos</p>
+                {stats.payments.recent.length ? <SwiPagos pagos={stats.payments.recent.map((p) => ({ ...p, fecha: String(p.fecha) }))} /> : <p className="text-sm text-slate-400">Todavía no llegan pagos de SWI.</p>}
+              </div>
+            </div>
+          )}
+        </Card>
         <Card delay={940} title="Auditoría de accesos del personal" className="xl:col-span-3"><AuditTable rows={data.audit} /></Card>
       </section>
     </div>

@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { BookingFlow } from "@/app/_components/BookingFlow";
 import { OtpLogin } from "@/app/_components/OtpLogin";
+import { SwiCitas } from "@/app/_components/SwiCitas";
 import { api, ApiError } from "@/lib/client/api";
 import { ago, formatDate } from "@/lib/format";
 import { CHANNEL_NAME, PENDING_LABEL, STEP_LABEL } from "@/lib/labels";
 
 type CaseT = { id: string; step: string; lastChannel: string; updatedAt: string; data: Record<string, string>; direccion?: string | null };
-type Summary = { patient: { id: string; nombre: string }; active: CaseT | null; upcoming: CaseT[]; history: CaseT[] };
+type Summary = { patient: { id: string; nombre: string }; active: CaseT | null; upcoming: CaseT[]; history: CaseT[]; swi?: { grupo: string }[] };
 
 const NEXT: Record<string, string> = {
   INICIADO: "ESTUDIO_ELEGIDO",
@@ -20,15 +21,14 @@ const NEXT: Record<string, string> = {
 
 /** App del paciente: ve sus citas, retoma trámites de cualquier canal y agenda nuevos. */
 export default function PatientApp() {
-  console.log("DEBUG RENDER", typeof window !== "undefined" ? "client" : "server");
   const [summary, setSummary] = useState<Summary | null | "anon">(null);
   const [mode, setMode] = useState<"home" | "flow">("home");
 
   const load = useCallback(async () => {
     try {
       setSummary(await api<Summary>("/api/patient/appointments", { as: "APP" }));
-    } catch (err: any) {
-      if (err?.status === 401 || err?.status === 403) setSummary("anon");
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) setSummary("anon");
       else throw err;
     }
   }, []);
@@ -119,8 +119,11 @@ function Home({ s, onContinue }: { s: Summary; onContinue: () => void }) {
           ))}
         </section>
       ) : (
-        <p className="text-sm text-slate-500 bg-white rounded-2xl border border-slate-200 p-4">No tienes citas próximas.</p>
+        // Si tiene citas próximas en otros canales (SWI), se muestran abajo; no decir "no tienes citas".
+        !s.swi?.some((c) => c.grupo === "PROXIMA") && <p className="text-sm text-slate-500 bg-white rounded-2xl border border-slate-200 p-4">No tienes citas próximas.</p>
       )}
+
+      <SwiCitas as="APP" />
 
       {a && (
         <section className="bg-white rounded-2xl border border-amber-200 p-4 space-y-2" aria-label="Trámite en curso">
