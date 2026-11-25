@@ -54,9 +54,9 @@ describe("utilidades", () => {
   });
 
   it("slots: 6 horarios futuros, ninguno en domingo", () => {
-    const s = slots(new Date("2026-11-21T12:00:00-07:00")); // sábado
+    const s = slots(new Date("2026-11-21T12:00:00-06:00")); // sábado
     expect(s).toHaveLength(6);
-    expect(s[0]).toBe("2026-11-23T08:00:00-07:00"); // salta el domingo 22
+    expect(s[0]).toBe("2026-11-23T08:00:00-06:00"); // salta el domingo 22
   });
 });
 

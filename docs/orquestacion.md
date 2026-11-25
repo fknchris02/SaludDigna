@@ -218,6 +218,11 @@ También: 1,148 pacientes, 1,174 trámites (5 eliminados) y 1,086 pagos. Llegan 
 
 El admin (`/admin`, solo para el rol ADMIN) ve **todos** los trámites de las dos fuentes como si fueran uno solo.
 
+El panel tiene dos vistas, en una barra lateral deslizable que se esconde al elegir una:
+
+- **Dashboard** (vista inicial): indicadores (pacientes en flujo, confirmadas en 24 h contra ayer, trámites en riesgo, asesores activos), distribución por canal, embudo de conversión con el tiempo medio para confirmar, clínicas de mayor tráfico, monitoreo en vivo por etapa (estudio y clínica → horario y datos → pausados → confirmados), trámites por etapa, cambios de canal, actividad en vivo, personal activo, bot de WhatsApp e IA, auditoría y el estado de la integración con SWI. "Exportar corte" descarga un CSV con todos los recorridos. Las cifras extra salen de `GET /api/admin/stats` (`lib/admin-stats.ts`).
+- **Pacientes Omnicanal** (`/admin#pacientes`): el mapa de cada recorrido, la lista filtrable y la nota de cada evento, descritos abajo. El indicador de riesgo y la campana abren esta vista filtrada en pausados, y la búsqueda de la barra superior también lleva aquí.
+
 ### De dónde salen los datos
 
 ```mermaid
