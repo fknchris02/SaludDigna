@@ -12,16 +12,17 @@ La aplicación Android usa Capacitor como contenedor de la página `/app` de Nex
 
    `dev:mobile` enlaza Next.js a todas las interfaces de red para que el emulador pueda acceder al servidor.
 
-2. Sincroniza y abre el proyecto nativo:
+2. Sin detener el servidor, abre una segunda terminal en la raíz del proyecto. Configura explícitamente la URL accesible desde el emulador y sincroniza Capacitor:
 
    ```powershell
+   $env:CAPACITOR_SERVER_URL = "http://10.0.2.2:3000/app"
    npm run cap:sync
    npm run cap:open
    ```
 
 3. En Android Studio, espera a que Gradle termine de sincronizar, elige un emulador e inicia la configuración `app`.
 
-La URL predeterminada es `http://10.0.2.2:3000/app`: `10.0.2.2` es la dirección especial con la que el emulador Android llega al `localhost` de Windows.
+`10.0.2.2` es la dirección especial con la que el emulador Android llega al `localhost` de la PC. Configura `CAPACITOR_SERVER_URL` antes de `npm run cap:sync`; no dependas de un valor predeterminado para elegir la dirección del backend.
 
 El proyecto usa Gradle 8.13 y requiere JDK 21. Si Android Studio selecciona otro JDK, cambia **Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK** a JDK 21.
 
@@ -50,7 +51,7 @@ El proyecto permite tráfico HTTP sin cifrar únicamente en la variante `debug`;
 
 ## Notas
 
-- `capacitor.config.ts` usa `CAPACITOR_SERVER_URL` si está definida; en otro caso apunta al emulador.
+- `capacitor.config.ts` usa `CAPACITOR_SERVER_URL` si está definida. Establécela explícitamente para cada entorno antes de sincronizar.
 - `npm run cap:sync` vuelve a copiar la configuración al proyecto Android.
 - Los cambios de UI siguen haciéndose en `app/app/page.tsx` y componentes React; recarga la página para verlos en el emulador mientras Next.js está activo.
 - No se requieren permisos de cámara, ubicación ni notificaciones para el flujo actual. Las notificaciones push necesitarían integrar Firebase y configurar `google-services.json`.

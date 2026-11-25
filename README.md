@@ -2,29 +2,73 @@
 
 Prototipo para el reto Salud Digna x TecNM HackaTec: un paciente inicia un trámite en un canal (Web) y lo continúa en otros (WhatsApp, Call Center, App) sin repetir datos ni perder su avance.
 
+> **Alcance de este checkout:** Web, simulador de WhatsApp, consola del asesor, tablero de administración y App web viven en este proyecto Next.js. La app Android es un contenedor Capacitor de `/app`. La recepción de clínica está en el proyecto hermano `WEB-CLINICA` y requiere una API SWI compatible externa. WhatsApp está simulado; el webhook oficial de Meta/Twilio no está implementado.
+
+## Documentación
+
+- Instalación completa, por canal y resolución de problemas: [docs/instalacion-canales.md](docs/instalacion-canales.md)
+- Índice de diagramas y mapa de componentes: [docs/diagramas.md](docs/diagramas.md)
 - Arquitectura: [docs/arquitectura.md](docs/arquitectura.md)
 - Flujo de datos / secuencia: [docs/secuencia.md](docs/secuencia.md)
 - Modelo de datos y máquina de estados: [docs/modelo-datos.md](docs/modelo-datos.md)
 - Catálogo de eventos: [docs/eventos.md](docs/eventos.md)
 - Integración con canales reales: [docs/integracion.md](docs/integracion.md)
+- Ejecución Android: [docs/android.md](docs/android.md)
+- Guion de demo: [docs/demo.md](docs/demo.md)
 
 ## Requisitos
 
 - Node.js 20+
 - Docker (para PostgreSQL), o un PostgreSQL 15+ propio
+- Para Android nativo: Android Studio, Android SDK y JDK 21 (solo si se va a compilar/ejecutar el contenedor)
 
 ## Instalación
 
+Ejecuta estos comandos desde la carpeta `SaludDigna`:
+
 ```bash
-cp .env.example .env          # ajusta OTP_SECRET
-docker compose up -d          # PostgreSQL en :5432 (crea también omnicanal_test)
-npm install                   # también genera el cliente de Prisma
-npm run db:migrate            # aplica migraciones
-npm run db:seed               # catálogo, Ana, asesor, admin y casos de ejemplo
-npm run dev                   # http://localhost:3000
+cp .env.example .env
+# Edita .env: configura secretos propios antes de usar datos reales.
+docker compose up -d
+npm install
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-Sin Docker: crea las bases `omnicanal` y `omnicanal_test` en tu PostgreSQL y ajusta `DATABASE_URL` / `TEST_DATABASE_URL` en `.env`.
+La aplicación principal queda en `http://localhost:3000`. En PowerShell, el primer comando equivalente es `Copy-Item .env.example .env`.
+
+Sin Docker: crea las bases `omnicanal` y `omnicanal_test` en tu PostgreSQL y ajusta `DATABASE_URL` / `TEST_DATABASE_URL` en `.env`. Mantén `TEST_DATABASE_URL` separada de la base de desarrollo: las pruebas pueden modificar su esquema y datos.
+
+### Canales disponibles en este checkout
+
+| Canal / rol | Estado | Acceso local | Instalación |
+|---|---|---|---|
+| Web del paciente | Implementado dentro de SaludDigna | `http://localhost:3000/web` | No requiere instalar otro proyecto |
+| WhatsApp | Simulador implementado; webhook Meta/Twilio pendiente | `http://localhost:3000/whatsapp` | No requiere proveedor ni credenciales para la demo |
+| Call Center | Consola de asesor implementada | `http://localhost:3000/asesor/login` | Usa el usuario asesor del seed |
+| Administrador | Tablero implementado | `http://localhost:3000/admin` | Usa el usuario administrador del seed |
+| App paciente (web) | Implementada como ruta de Next.js | `http://localhost:3000/app` | No requiere instalar otro proyecto |
+| App Android | Contenedor Capacitor de `/app` | Emulador o dispositivo | Requiere Android Studio/JDK 21; ver [docs/android.md](docs/android.md) |
+| Recepción de clínica | Proyecto hermano `WEB-CLINICA` | `http://localhost:3001` | Requiere SWI con la API esperada; ver [docs/instalacion-canales.md](docs/instalacion-canales.md#recepcion-de-clinica-web-clinica) |
+
+El paquete de la raíz puede iniciar SaludDigna y WEB-CLINICA juntos con `npm run dev`, pero iniciar ambos servidores **no** instala ni proporciona la API SWI que necesita WEB-CLINICA. En este checkout, SaludDigna expone `/api/catalog`, `/api/cases` y `/api/patient/...`; WEB-CLINICA espera rutas SWI como `/api/clinicas` y `/api/pacientes`. Consulta la [guía de canales](docs/instalacion-canales.md) antes de usar la recepción.
+
+### Variables importantes
+
+La plantilla [`.env.example`](.env.example) contiene las variables del backend principal:
+
+| Variable | Uso |
+|---|---|
+| `DATABASE_URL` | PostgreSQL para la aplicación |
+| `TEST_DATABASE_URL` | Base aislada para pruebas |
+| `OTP_SECRET` | Firma/hash de códigos OTP de demo |
+| `SESSION_SECRET` | Firma de cookies de sesión; debe tener al menos 16 caracteres |
+| `WHATSAPP_SIMULATOR` | `1` habilita el simulador que confía en el número escrito; no usar así como canal real |
+| `ANTHROPIC_API_KEY` | Opcional; habilita funciones de IA |
+| `AI_MODEL`, `AI_DISABLED` | Selección y desactivación de IA; si está apagada, se usan reglas |
+
+No subas `.env`, `.env.local`, credenciales ni secretos reales al repositorio. Los usuarios y datos de prueba que aparecen en este README son exclusivamente para la demo local.
 
 ## Demo en 5 pasos
 
@@ -58,7 +102,7 @@ Abre `http://localhost:3000/app` (marco de teléfono en escritorio; pantalla com
 
 ### Ejecutar en Android Studio
 
-La app Android usa Capacitor como contenedor de la misma interfaz y requiere que el backend Next.js esté accesible. Para un emulador Android, ejecuta `npm run dev:mobile` y luego `npm run cap:open`; compila y ejecuta el módulo `app` desde Android Studio. La configuración predeterminada apunta a `http://10.0.2.2:3000/app` (el localhost del emulador). Para un dispositivo físico, configura `CAPACITOR_SERVER_URL` con la IP LAN de tu PC antes de `npm run cap:sync`. Instrucciones completas: [docs/android.md](docs/android.md).
+La app Android usa Capacitor como contenedor de la misma interfaz y requiere que el backend Next.js esté accesible. Configura explícitamente `CAPACITOR_SERVER_URL` antes de sincronizar: para el emulador usa `http://10.0.2.2:3000/app`; para un dispositivo físico usa la IP LAN de tu PC. Después ejecuta `npm run dev:mobile`, `npm run cap:sync` y `npm run cap:open`; compila y ejecuta el módulo `app` desde Android Studio. Instrucciones completas: [docs/android.md](docs/android.md).
 
 ## Simulador de WhatsApp
 
