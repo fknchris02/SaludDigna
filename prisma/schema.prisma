@@ -32,15 +32,18 @@ enum StaffRole {
 
 // Identidad: la llave maestra es el teléfono E.164 verificado.
 model Patient {
-  id         String            @id @default(cuid())
-  nombre     String
-  fechaNac   DateTime          @db.Date
-  telefono   String            @unique // E.164, p. ej. +526671234567
-  email      String?
-  createdAt  DateTime          @default(now())
-  identities ChannelIdentity[]
-  cases      Case[]
-  events     Event[]
+  id           String            @id @default(cuid())
+  nombre       String
+  fechaNac     DateTime?         @db.Date // null = llegó de una integración sin fecha (no puede verificarse por fecha)
+  telefono     String            @unique // E.164, p. ej. +526671234567
+  email        String?
+  createdAt    DateTime          @default(now())
+  identities   ChannelIdentity[]
+  cases        Case[]
+  events       Event[]
+  swiPacientes SwiPaciente[]
+  swiTramites  SwiTramite[]
+  swiEventos   SwiEvento[]
 }
 
 // Una identidad por canal (cookie web, número de WhatsApp, usuario de app).
@@ -62,20 +65,20 @@ model ChannelIdentity {
 
 // Contexto y estado del trámite. `version` = bloqueo optimista entre canales.
 model Case {
-  id                String           @id @default(cuid())
-  tipo              String           @default("AGENDAR_ESTUDIO")
-  step              CaseStep         @default(INICIADO)
-  data              Json             @default("{}")
-  version           Int              @default(1)
-  lastChannel       Channel
-  patientId         String?
-  patient           Patient?         @relation(fields: [patientId], references: [id])
+  id             String           @id @default(cuid())
+  tipo           String           @default("AGENDAR_ESTUDIO")
+  step           CaseStep         @default(INICIADO)
+  data           Json             @default("{}")
+  version        Int              @default(1)
+  lastChannel    Channel
+  patientId      String?
+  patient        Patient?         @relation(fields: [patientId], references: [id])
   // Mientras el visitante es anónimo, el caso cuelga de su identidad de canal.
-  anonIdentityId    String?
-  anonIdentity      ChannelIdentity? @relation(fields: [anonIdentityId], references: [id])
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  events            Event[]
+  anonIdentityId String?
+  anonIdentity   ChannelIdentity? @relation(fields: [anonIdentityId], references: [id])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  events         Event[]
 
   @@index([patientId, updatedAt])
 }
@@ -107,28 +110,111 @@ model StaffUser {
 }
 
 model OtpChallenge {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   telefono  String
   codeHash  String
   expiresAt DateTime
-  attempts  Int      @default(0)
+  attempts  Int       @default(0)
   usedAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([telefono, createdAt])
 }
 
 // Catálogo para la demo
 model Study {
-  id           String @id
-  nombre       String
-  precio       Int // centavos MXN
-  preparacion  String
+  id          String       @id
+  nombre      String
+  precio      Int // centavos MXN
+  preparacion String
+  swiTramites SwiTramite[]
 }
 
 model Clinic {
-  id        String @id
-  nombre    String
-  ciudad    String
-  direccion String
+  id          String       @id
+  nombre      String
+  ciudad      String
+  direccion   String
+  swiTramites SwiTramite[]
+}
+
+// ───── Integración SWI (otra app del prototipo) ─────
+// Sus registros se guardan tal cual (`datos`), con su propio id; se ligan a nuestro paciente por teléfono.
+// No pasan por nuestro OTP ni por nuestros trámites (Case). Pueden llegar en cualquier orden.
+
+model SwiPaciente {
+  id            String   @id // id de SWI
+  patientId     String
+  patient       Patient  @relation(fields: [patientId], references: [id])
+  telefono      String // E.164
+  creoPaciente  Boolean  @default(false) // true = el paciente nació en SWI: sus datos mandan
+  datos         Json     @default("{}") // registro completo tal como llegó ({} si aún no llega)
+  recibidoEn    DateTime @default(now())
+  actualizadoEn DateTime @updatedAt
+
+  @@index([patientId])
+}
+
+model SwiTramite {
+  id                String    @id
+  pacienteId        String? // id de SWI del paciente
+  patientId         String
+  patient           Patient   @relation(fields: [patientId], references: [id])
+  studyId           String?
+  study             Study?    @relation(fields: [studyId], references: [id])
+  clinicId          String?
+  clinic            Clinic?   @relation(fields: [clinicId], references: [id])
+  fechaCita         DateTime?
+  estado            String?
+  canalOrigen       String?
+  canalActual       String?
+  folioExterno      String?
+  recuperadoPor     String?
+  creadoEnSwi       DateTime?
+  actualizadoEnSwi  DateTime?
+  eliminadoEn       DateTime? // SWI lo borró (evento TRAMITE_ELIMINADO): se conserva su historia, sale del tablero
+  motivoEliminacion String?
+  datos             Json      @default("{}")
+  recibidoEn        DateTime  @default(now())
+  actualizadoEn     DateTime  @updatedAt
+
+  @@index([patientId])
+}
+
+// Nunca se guarda el número completo de tarjeta: solo marca y últimos 4.
+model SwiPago {
+  id            String    @id
+  tramiteId     String? // id de SWI; puede llegar antes que su trámite
+  monto         Decimal?  @db.Decimal(12, 2)
+  moneda        String?
+  metodo        String?
+  estado        String?
+  marca         String?
+  ultimos4      String?
+  referencia    String?
+  canal         String?
+  creadoEnSwi   DateTime?
+  recibidoEn    DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  @@index([tramiteId])
+}
+
+// patientId nulo = su paciente o trámite aún no llega; se liga (y pasa a la línea de tiempo) cuando llegan.
+model SwiEvento {
+  id            String    @id
+  patientId     String?
+  patient       Patient?  @relation(fields: [patientId], references: [id])
+  pacienteId    String?
+  tramiteId     String?
+  canal         String?
+  tipoEvento    String?
+  detalle       Json      @default("{}")
+  fecha         DateTime?
+  recibidoEn    DateTime  @default(now())
+  actualizadoEn DateTime  @updatedAt
+
+  @@index([patientId, fecha])
+  @@index([pacienteId])
+  @@index([tramiteId])
 }

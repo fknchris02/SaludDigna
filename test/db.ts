@@ -2,6 +2,10 @@ import { db } from "@/lib/db";
 
 /** Deja la BD de pruebas vacía con un estudio ("us") y una clínica ("c1"). */
 export async function resetDb() {
+  await db.swiPago.deleteMany();
+  await db.swiTramite.deleteMany();
+  await db.swiEvento.deleteMany();
+  await db.swiPaciente.deleteMany();
   await db.event.deleteMany();
   await db.case.deleteMany();
   await db.channelIdentity.deleteMany();

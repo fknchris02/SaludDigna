@@ -163,7 +163,7 @@ describe("número nuevo en WhatsApp", () => {
     expect(texts(r)).toMatch(/Qué estudio/);
     await send("1", tel);
     const p = await db.patient.findUniqueOrThrow({ where: { telefono: "+526679999999" } });
-    expect(p.fechaNac.toISOString().slice(0, 10)).toBe("1999-01-20");
+    expect(p.fechaNac?.toISOString().slice(0, 10)).toBe("1999-01-20");
     expect((await getActiveCase(p.id))?.step).toBe("ESTUDIO_ELEGIDO");
   });
 });

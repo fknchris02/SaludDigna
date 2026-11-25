@@ -152,7 +152,7 @@ export async function verifyByBirthdate(identityId: string, fechaNac: string) {
   if (fails >= OTP_MAX_ATTEMPTS) throw new EngineError("IDENTITY_REQUIRED", "Demasiados intentos; espera unos minutos");
   const telefono = normalizePhone(identity.externalId);
   const patient = await db.patient.findUnique({ where: { telefono } });
-  const ok = !!patient && patient.fechaNac.toISOString().slice(0, 10) === fechaNac;
+  const ok = !!patient?.fechaNac && patient.fechaNac.toISOString().slice(0, 10) === fechaNac;
   if (!ok) {
     await recordEvent({ type: EventType.OTP_FAILED, channel: identity.channel, payload: { method: "BIRTHDATE", identityId: identity.id } });
     return null;
@@ -250,7 +250,7 @@ export async function verifyByStaff(staffId: string, patientId: string, input: {
     where: { type: EventType.OTP_FAILED, actorId: staffId, patientId, createdAt: { gt: new Date(Date.now() - OTP_WINDOW_MS) } },
   });
   if (fails >= OTP_MAX_ATTEMPTS) throw new EngineError("IDENTITY_REQUIRED", "Demasiados intentos; espera 10 minutos o valida por otro medio");
-  const ok = patient.fechaNac.toISOString().slice(0, 10) === input.fechaNac && patient.telefono.endsWith(input.last4);
+  const ok = !!patient.fechaNac && patient.fechaNac.toISOString().slice(0, 10) === input.fechaNac && patient.telefono.endsWith(input.last4);
   await recordEvent({
     type: ok ? EventType.IDENTITY_VERIFIED : EventType.OTP_FAILED,
     channel: "CALL_CENTER",

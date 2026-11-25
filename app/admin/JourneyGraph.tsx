@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Ev } from "@/app/_components/Timeline";
-import { ago, formatDate, formatTime, money } from "@/lib/format";
-import { CHANNEL_LABEL, INTENT_LABEL, PENDING_LABEL, STEP_LABEL, STEPS } from "@/lib/labels";
+import { ago, formatDate, formatTime, money, TZ } from "@/lib/format";
+import { CHANNEL_LABEL, EVENT_LABEL, INTENT_LABEL, PENDING_LABEL, STEP_LABEL, STEPS, SWI_EVENT_LABEL } from "@/lib/labels";
 
 export type CaseDetail = {
   case: { id: string; step: string; data: Record<string, string>; version: number; lastChannel: string; updatedAt: string };
@@ -14,16 +14,19 @@ export type CaseDetail = {
 export type JourneyStatus = "ACTIVO" | "PAUSADO" | "CONFIRMADO" | "CANCELADO";
 
 // Carriles del mapa: un canal por fila (mismos colores que los chips de canal del resto de la app).
-const LANES = ["WEB", "WHATSAPP", "CALL_CENTER", "APP"] as const;
+// CLINICA solo la usan los recorridos que llegan de SWI (recepción, check-in, resultados).
+const LANES = ["WEB", "WHATSAPP", "CALL_CENTER", "APP", "CLINICA"] as const;
 export const CHANNEL_VISUAL: Record<string, { dot: string; text: string; hex: string }> = {
   WEB: { dot: "bg-sky-500 shadow-sky-500/30", text: "text-sky-700", hex: "#0ea5e9" },
   WHATSAPP: { dot: "bg-emerald-500 shadow-emerald-500/30", text: "text-emerald-700", hex: "#10b981" },
   CALL_CENTER: { dot: "bg-violet-600 shadow-violet-500/30", text: "text-violet-700", hex: "#7c3aed" },
   APP: { dot: "bg-orange-500 shadow-orange-500/30", text: "text-orange-700", hex: "#f97316" },
+  CLINICA: { dot: "bg-rose-500 shadow-rose-500/30", text: "text-rose-700", hex: "#f43f5e" },
 };
 
-const LANE_Y0 = 70;
-const LANE_GAP = 150;
+// Margen arriba y abajo de media tarjeta grande (~200 px de alto) para que la del primer y último carril no se corte.
+const LANE_Y0 = 125;
+const LANE_GAP = 100;
 const X0 = 150;
 const X_STEP = 260;
 const W = { card: 224, pill: 240, hero: 240 } as const;
@@ -39,6 +42,7 @@ type Node = {
   time?: string;
   tone?: "danger" | "warning" | "ok" | "pending";
   badge?: string;
+  ev?: Ev; // el evento real detrás del nodo (el "Falta" no tiene)
 };
 
 /** Eventos reales del trámite → nodos del mapa. Lo que el sistema no registra no se dibuja. */
@@ -48,7 +52,8 @@ function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
   for (const e of d.timeline) {
     const p = e.payload as Record<string, unknown>;
     const data = (p.data ?? {}) as Record<string, string | number>;
-    const base = { key: e.seq, channel: e.channel, lane: Math.max(0, LANES.indexOf(e.channel as (typeof LANES)[number])), time: formatTime(e.createdAt).slice(0, 5) };
+    const channel = e.type === "SWI_EVENTO" ? String(p.canal ?? "WEB") : e.channel; // en SWI el canal real va en el payload
+    const base = { key: e.seq, ev: e, channel, lane: Math.max(0, LANES.indexOf(channel as (typeof LANES)[number])), time: shortWhen(e.createdAt) };
     if (e.type === "CASE_CREATED") nodes.push({ ...base, kind: "card", title: "Inició un trámite", subtitle: "Cotización de estudio", meta: by(e) });
     else if (e.type === "STEP_COMPLETED") {
       const to = String(p.to);
@@ -71,6 +76,13 @@ function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
     // La consulta del asesor es parte de la atención; el monitoreo del admin solo va a la auditoría, no al recorrido.
     else if (e.type === "ADVISOR_OPENED_CASE" && p.role !== "ADMIN") nodes.push({ ...base, kind: "pill", title: "Consulta del asesor", meta: by(e)?.replace("por ", "") });
     else if (e.type === "CONFLICT_DETECTED") nodes.push({ ...base, kind: "pill", tone: "warning", title: "Edición simultánea bloqueada" });
+    else if (e.type === "SWI_EVENTO") {
+      const tipo = String(p.tipoEvento ?? "");
+      const c = d.case.data;
+      if (tipo === "CITA_CONFIRMADA")
+        nodes.push({ ...base, kind: "hero", tone: "ok", title: c.estudio || "Cita", subtitle: [c.clinica, c.horario && formatDate(c.horario)].filter(Boolean).join(" · "), badge: c.folio ? `Folio ${c.folio}` : "SWI" });
+      else nodes.push({ ...base, kind: "card", title: SWI_EVENT_LABEL[tipo] ?? tipo, subtitle: p.texto ? String(p.texto) : undefined, tone: SWI_DANGER.has(tipo) ? "danger" : undefined });
+    }
   }
   // Lo que falta: en el carril del último canal. Si está pausado, como el "abortado" del diseño.
   if (status === "ACTIVO" || status === "PAUSADO") {
@@ -89,6 +101,16 @@ function buildNodes(d: CaseDetail, status: JourneyStatus): Node[] {
   return nodes;
 }
 
+const SWI_DANGER = new Set(["CITA_CANCELADA", "TRAMITE_ABANDONADO", "TRAMITE_ELIMINADO", "PAGO_RECHAZADO"]);
+
+/** Hora si es de hoy; si no, día y hora (los recorridos de SWI pueden ser de semanas atrás). */
+function shortWhen(iso: string) {
+  const day = (x: Date) => x.toLocaleDateString("es-MX", { timeZone: TZ });
+  const date = new Date(iso);
+  const time = formatTime(iso).slice(0, 5);
+  return day(date) === day(new Date()) ? time : `${date.toLocaleDateString("es-MX", { timeZone: TZ, day: "numeric", month: "short" })} ${time}`;
+}
+
 const pos = (i: number, n: Node) => ({ x: X0 + i * X_STEP, y: LANE_Y0 + n.lane * LANE_GAP });
 
 export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: JourneyStatus }) {
@@ -97,6 +119,16 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
   const playing = shown !== null && shown < nodes.length;
   const viewport = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Nota abierta: ligada al trámite, así al cambiar de recorrido se cierra sola.
+  const [note, setNote] = useState<{ caseId: string; key: string } | null>(null);
+  const openKey = note?.caseId === detail.case.id ? note.key : null;
+
+  useEffect(() => {
+    if (!openKey) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNote(null);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openKey]);
 
   // Al abrir un recorrido, mostrar el final (lo más reciente).
   useEffect(() => {
@@ -117,9 +149,9 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
   const height = LANE_Y0 * 2 + (LANES.length - 1) * LANE_GAP;
 
   return (
-    <div className="relative h-full">
-      <div ref={viewport} className="overflow-x-auto overflow-y-hidden h-full" data-purpose="journey-graph-area">
-        <div className="relative" style={{ width, height }}>
+    <div className="h-full flex flex-col">
+      <div ref={viewport} className="overflow-auto flex-1 min-h-0" data-purpose="journey-graph-area">
+        <div className="relative" style={{ width, height }} onClick={(e) => !(e.target as HTMLElement).closest("[data-node]") && setNote(null)}>
           {/* Carriles */}
           {LANES.map((l, i) => (
             <div key={l} className="absolute left-0 right-0 flex items-center" style={{ top: LANE_Y0 + i * LANE_GAP - 12 }}>
@@ -167,16 +199,31 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
           {/* Nodos */}
           {nodes.map((n, i) => {
             const p = pos(i, n);
+            const open = openKey === n.key;
             return (
               <div
                 key={n.key}
+                data-node
                 ref={(el) => {
                   nodeRefs.current[i] = el;
                 }}
-                className={`absolute omni-node transition-all duration-500 ${i < visible ? "opacity-100" : "opacity-0 translate-y-2 pointer-events-none"}`}
+                className={`absolute omni-node transition-all duration-500 ${open ? "z-30" : ""} ${i < visible ? "opacity-100" : "opacity-0 translate-y-2 pointer-events-none"}`}
                 style={{ left: p.x, top: p.y, width: W[n.kind], transform: "translateY(-50%)" }}
               >
-                <NodeView n={n} />
+                <button
+                  type="button"
+                  onClick={() => setNote(open ? null : { caseId: detail.case.id, key: n.key })}
+                  aria-expanded={open}
+                  aria-controls={open ? "event-note" : undefined}
+                  title="Ver nota del evento"
+                  className={`block w-full text-left rounded-[28px] transition-transform hover:-translate-y-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sd-blue ${open ? "ring-2 ring-sd-blue/40" : ""}`}
+                >
+                  <NodeView n={n} />
+                </button>
+                {open && (
+                  // Carriles de arriba: la nota abre hacia abajo; los de abajo, hacia arriba. El último nodo la alinea a la derecha.
+                  <EventNote n={n} note={noteFor(n, detail, status)} below={n.lane <= 2} alignRight={i > 0 && i === nodes.length - 1} onClose={() => setNote(null)} />
+                )}
               </div>
             );
           })}
@@ -184,8 +231,8 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
         </div>
       </div>
 
-      {/* Control flotante: minimapa + reproducir (como el del diseño) */}
-      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-40 bg-sd-dark/90 backdrop-blur-xl border border-white/10 rounded-3xl p-2.5 shadow-2xl flex items-center gap-3 text-white">
+      {/* Control: minimapa + reproducir, debajo del mapa para no tapar el último carril */}
+      <div className="self-center my-3 shrink-0 z-40 bg-sd-dark/90 backdrop-blur-xl border border-white/10 rounded-3xl p-2.5 shadow-2xl flex items-center gap-3 text-white">
         <MiniMap nodes={nodes} visible={visible} />
         <div className="flex items-center gap-1.5 border-l border-white/10 pl-3">
           <button
@@ -212,6 +259,7 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
             <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden><path d="M13 5l7 7-7 7M5 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
         </div>
+        <p className="hidden sm:block border-l border-white/10 pl-3 pr-2 text-[11px] leading-tight text-white/60">Clic en un evento<br />para ver su nota</p>
       </div>
     </div>
   );
@@ -219,7 +267,7 @@ export function JourneyGraph({ detail, status }: { detail: CaseDetail; status: J
 
 function MiniMap({ nodes, visible }: { nodes: Node[]; visible: number }) {
   const n = Math.max(nodes.length - 1, 1);
-  const pt = (i: number, node: Node) => ({ x: 6 + (i / n) * 88, y: 6 + node.lane * 9.3 });
+  const pt = (i: number, node: Node) => ({ x: 6 + (i / n) * 88, y: 6 + node.lane * 7 });
   const pct = nodes.length ? Math.round((100 * Math.min(visible, nodes.length)) / nodes.length) : 0;
   return (
     <div className="w-44 h-14 bg-slate-900/80 rounded-2xl p-1.5 relative overflow-hidden border border-white/5" aria-hidden>
@@ -245,6 +293,7 @@ function ChannelIcon({ channel, className = "w-5 h-5" }: { channel: string; clas
   const d =
     channel === "CALL_CENTER" ? "M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
     : channel === "APP" ? "M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
+    : channel === "CLINICA" ? "M3 21h18M5 21V7l7-4 7 4v14M9 21v-4h6v4M12 8v4M10 10h4"
     : "M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9";
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
@@ -310,6 +359,141 @@ function NodeView({ n }: { n: Node }) {
         {n.subtitle && <p className="text-[10px] text-slate-500 truncate">{n.subtitle}</p>}
         {n.meta && <p className="text-[10px] text-violet-600 truncate">{n.meta}</p>}
       </div>
+    </div>
+  );
+}
+
+// ---------- Nota informativa de un evento ----------
+
+/** Qué significa cada evento propio, en palabras del admin. */
+const EXPLAIN: Record<string, string> = {
+  CASE_CREATED: "El paciente abrió un trámite nuevo. Desde aquí cualquier canal puede continuarlo sin pedirle los datos otra vez.",
+  STEP_COMPLETED: "Se guardó un paso del trámite. El cambio queda visible al instante en todos los canales.",
+  APPOINTMENT_CONFIRMED: "La cita quedó confirmada y se generó su folio. El paciente la ve en la app y en WhatsApp.",
+  CASE_CANCELLED: "El trámite se canceló. Ningún canal puede seguir avanzándolo.",
+  INTENT_CLASSIFIED: "El sistema interpretó lo que escribió el paciente y actuó en consecuencia.",
+  ADVISOR_OPENED_CASE: "Un asesor abrió el expediente para atenderlo. El acceso queda en la auditoría.",
+  CONFLICT_DETECTED: "Dos canales intentaron cambiar el trámite al mismo tiempo. Se bloqueó el cambio desactualizado para no perder datos.",
+};
+
+/** Lo mismo para los eventos que llegan de SWI (su tipoEvento). */
+const SWI_EXPLAIN: Record<string, string> = {
+  PACIENTE_REGISTRADO: "Se registró al paciente en SWI.",
+  COTIZACION_INICIADA: "El paciente empezó a cotizar un estudio.",
+  ESTUDIO_SELECCIONADO: "El paciente eligió el estudio que se va a hacer.",
+  CLINICA_SELECCIONADA: "Se eligió la clínica donde será la cita.",
+  FECHA_SELECCIONADA: "Se eligió la fecha y hora de la cita.",
+  DATOS_CAPTURADOS: "Se capturaron los datos del paciente para la cita.",
+  CITA_AGENDADA: "La cita quedó agendada.",
+  CITA_CONFIRMADA: "La cita quedó confirmada.",
+  CITA_CANCELADA: "La cita se canceló.",
+  CITA_VISUALIZADA: "El paciente revisó su cita en la app.",
+  CITA_PARA_FAMILIAR: "El paciente agendó una cita para un familiar.",
+  TRAMITE_ABANDONADO: "El paciente dejó el trámite sin terminar. Es candidato a recuperar.",
+  TRAMITE_RETOMADO: "El paciente retomó un trámite que había dejado.",
+  TRAMITE_ELIMINADO: "Se eliminó el trámite. Ya no cuenta en el tablero, pero su historial se conserva.",
+  LLAMADA_RECIBIDA: "El paciente llamó al Call Center.",
+  TRANSFERENCIA_ASESOR: "La conversación pasó a un asesor.",
+  NOTA_ASESOR: "Un asesor dejó una nota en el expediente.",
+  CONTEXTO_CONSULTADO: "Un asesor consultó el expediente del paciente.",
+  MENSAJE_RECIBIDO: "Mensaje que escribió el paciente.",
+  MENSAJE_ENVIADO: "Mensaje que se le envió al paciente.",
+  CORREO_ENVIADO: "Se le envió un correo al paciente.",
+  PAGO_EN_CLINICA: "El paciente pagará al llegar a la clínica.",
+  PAGO_APROBADO: "El pago se aprobó.",
+  PAGO_RECHAZADO: "El pago fue rechazado.",
+  CHECK_IN: "El paciente llegó a la clínica y registró su llegada.",
+  RESULTADOS_ENTREGADOS: "Se entregaron los resultados del estudio.",
+  REPORTE_ENVIADO: "Se envió al paciente el reporte de su consulta. El PDF vive en SWI; aquí solo se guardan los datos.",
+};
+
+type Note = { kicker: string; title: string; explain: string; rows: [string, string][] };
+
+function noteFor(n: Node, d: CaseDetail, status: JourneyStatus): Note {
+  const channel = CHANNEL_LABEL[n.channel] ?? n.channel;
+  const e = n.ev;
+  if (!e) {
+    // El nodo "Falta…": no es un evento, es lo que el paciente aún no hace.
+    const paused = status === "PAUSADO";
+    return {
+      kicker: paused ? "Pausado" : "En curso",
+      title: n.title,
+      explain: paused
+        ? "El paciente dejó el trámite en este paso y lleva más de 10 minutos sin actividad. Es candidato a recuperar por WhatsApp o Call Center."
+        : "El paciente está en este paso ahora mismo.",
+      rows: [["Último canal", channel], ["Última actividad", `${formatDate(d.case.updatedAt)} · ${ago(d.case.updatedAt)}`]],
+    };
+  }
+  const p = e.payload as Record<string, unknown>;
+  const data = (p.data ?? {}) as Record<string, string | number>;
+  const swi = e.type === "SWI_EVENTO";
+  const tipo = String(p.tipoEvento ?? "");
+  const staff = e.actorId ? d.actors[e.actorId] : null;
+  const who = staff
+    ? `${staff.nombre} (${staff.role === "ADMIN" ? "admin" : "asesor"})`
+    : swi ? "Registrado por SWI"
+    : e.type === "INTENT_CLASSIFIED" || e.type === "CONFLICT_DETECTED" ? "El sistema"
+    : e.channel === "CALL_CENTER" ? "Un asesor del Call Center"
+    : e.channel === "WHATSAPP" ? "El paciente, por WhatsApp"
+    : "El paciente, por su cuenta";
+
+  const rows: [string, string][] = [["Canal", channel], ["Cuándo", `${formatDate(e.createdAt)} · ${ago(e.createdAt)}`], ["Quién", who]];
+  const add = (k: string, v: unknown) => v !== undefined && v !== null && v !== "" && rows.push([k, String(v)]);
+  if (e.type === "STEP_COMPLETED") {
+    add("Paso", `${STEP_LABEL[String(p.from)] ?? p.from} → ${STEP_LABEL[String(p.to)] ?? p.to}`);
+    if (p.to === "ESTUDIO_ELEGIDO") add("Estudio", data.precio ? `${data.estudio} · ${money(Number(data.precio))}` : data.estudio);
+    if (p.to === "CLINICA_ELEGIDA") add("Clínica", data.clinica);
+    if (p.to === "HORARIO_ELEGIDO" && data.horario) add("Horario", formatDate(String(data.horario)));
+  } else if (e.type === "APPOINTMENT_CONFIRMED") {
+    add("Estudio", data.estudio);
+    add("Clínica", data.clinica);
+    if (data.horario) add("Horario", formatDate(String(data.horario)));
+    add("Folio", data.folio);
+  } else if (e.type === "CASE_CANCELLED") add("Motivo", data.motivoCancelacion ?? "Sin motivo registrado");
+  else if (e.type === "INTENT_CLASSIFIED") {
+    add("Entendió", INTENT_LABEL[String(p.intent)] ?? p.intent);
+    add("Cómo", p.source === "llm" ? "Con IA" : "Por reglas");
+  } else if (e.type === "CONFLICT_DETECTED") add("Versiones", `esperaba v${p.expectedVersion}, había v${p.currentVersion}`);
+  else if (swi) {
+    add("Detalle", p.texto);
+    add("Tipo en SWI", tipo);
+  }
+
+  return {
+    kicker: swi ? `${channel} · SWI` : channel,
+    title: swi ? (SWI_EVENT_LABEL[tipo] ?? tipo) : (EVENT_LABEL[e.type] ?? n.title),
+    explain: swi ? (SWI_EXPLAIN[tipo] ?? "Evento registrado en SWI y recibido por la integración.") : (EXPLAIN[e.type] ?? "Evento registrado en la bitácora del trámite."),
+    rows,
+  };
+}
+
+function EventNote({ n, note, below, alignRight, onClose }: { n: Node; note: Note; below: boolean; alignRight: boolean; onClose: () => void }) {
+  const v = CHANNEL_VISUAL[n.channel] ?? CHANNEL_VISUAL.WEB;
+  return (
+    <div
+      id="event-note"
+      role="dialog"
+      aria-label={`Nota: ${note.title}`}
+      className={`absolute ${below ? "top-full mt-2" : "bottom-full mb-2"} ${alignRight ? "right-0" : "left-0"} w-[300px] bg-white rounded-2xl border border-slate-200 shadow-2xl p-4 text-left`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className={`text-[10px] font-bold uppercase tracking-wider ${v.text}`}>{note.kicker}</p>
+          <h4 className="text-sm font-bold text-slate-900 leading-snug">{note.title}</h4>
+        </div>
+        <button type="button" onClick={onClose} aria-label="Cerrar nota" className="w-7 h-7 shrink-0 rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700 grid place-items-center">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" aria-hidden><path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" /></svg>
+        </button>
+      </div>
+      <p className="text-xs text-slate-600 mt-2 leading-relaxed">{note.explain}</p>
+      <dl className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-[84px_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[11px]">
+        {note.rows.map(([k, val]) => (
+          <Fragment key={k}>
+            <dt className="text-slate-400">{k}</dt>
+            <dd className="text-slate-700 font-medium break-words whitespace-pre-line">{val}</dd>
+          </Fragment>
+        ))}
+      </dl>
     </div>
   );
 }
